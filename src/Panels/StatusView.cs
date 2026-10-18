@@ -1,10 +1,8 @@
-// 状态面板：把一次 SystemSnapshot 画成「标签 + 数值 + 进度条」的几行。
-//
-// 用自绘而不是堆几十个 Label/ProgressBar：刷新是每秒级的，控件越多重排越贵，
-// 而且深色主题下原生 ProgressBar 是亮色的，还得额外自绘 —— 不如整块自己画。
+// 系统状态视图（Fluent 版）：标签 + 数值 + 4px 进度条，全部 GDI+ 绘制（Mica 下 alpha 才正确）。
 
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 using Hz.Sys;
 
@@ -12,68 +10,64 @@ namespace Hz.Panels
 {
     internal sealed class StatusView : Control
     {
-        private const int RowHeight = 34;
+        private const int RowHeight = 33;
         private SystemSnapshot _snap;
-        private string _extraNote = "";
 
         public StatusView()
         {
-            BackColor = Theme.Card;
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer
-                     | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+                     | ControlStyles.UserPaint | ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
+            SetStyle(ControlStyles.SupportsTransparentBackColor, true);
+            BackColor = Color.Transparent;
         }
 
-        public void Update(SystemSnapshot snapshot, string extraNote)
+        public void Update(SystemSnapshot snapshot)
         {
             _snap = snapshot;
-            _extraNote = extraNote ?? "";
             Invalidate();
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = e.Graphics;
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.Clear(BackColor);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
 
             if (_snap == null)
             {
-                TextRenderer.DrawText(g, "正在采集…", Theme.FontUi, new Point(0, 6), Theme.TextFaint, TextFormatFlags.NoPadding);
+                Fluent.Text(g, "正在采集…", Theme.Body, new PointF(0, 6), Theme.TextTertiary);
                 return;
             }
 
             int capacity = Math.Max(3, (Height - 6) / RowHeight);
             int y = 0;
-            Row(g, ref y, "CPU 占用", _snap.CpuPercent.ToString("0") + " %", _snap.CpuPercent / 100.0, ColorFor(_snap.CpuPercent));
-
-            Row(g, ref y, "内存", _snap.MemUsedMb.ToString("0") + " / " + _snap.MemTotalMb.ToString("0") + " MB（" +
-                             _snap.MemPercent.ToString("0") + "%）", _snap.MemPercent / 100.0, ColorFor(_snap.MemPercent));
+            Row(g, ref y, "CPU 占用", _snap.CpuPercent.ToString("0") + " %", _snap.CpuPercent / 100.0, Fluent.MeterColor(_snap.CpuPercent));
+            Row(g, ref y, "内存", Fluent.FormatMb(_snap.MemUsedMb) + " / " + Fluent.FormatMb(_snap.MemTotalMb) +
+                             "（" + _snap.MemPercent.ToString("0") + "%）", _snap.MemPercent / 100.0, Fluent.MeterColor(_snap.MemPercent));
 
             GpuInfo gpu = _snap.Gpu;
             if (gpu != null && gpu.Available)
             {
                 string text = gpu.UtilPercent.ToString("0") + " %" +
-                              (gpu.MemTotalMb > 0 ? "  显存 " + gpu.MemUsedMb.ToString("0") + "/" + gpu.MemTotalMb.ToString("0") + " MB" : "") +
-                              (gpu.TempC > 0 ? "  " + gpu.TempC.ToString("0") + " ℃" : "");
-                Row(g, ref y, "GPU " + Shorten(gpu.Name, 22), text, gpu.UtilPercent / 100.0, Theme.Info);
+                              (gpu.MemTotalMb > 0 ? "   显存 " + Fluent.FormatMb(gpu.MemUsedMb) + " / " + Fluent.FormatMb(gpu.MemTotalMb) : "") +
+                              (gpu.TempC > 0 ? "   " + gpu.TempC.ToString("0") + " ℃" : "");
+                Row(g, ref y, "GPU " + Fluent.Shorten(gpu.Name, 14), text, gpu.UtilPercent / 100.0, Theme.Accent);
             }
             else
             {
-                Row(g, ref y, "GPU", gpu == null || string.IsNullOrEmpty(gpu.Error) ? "不可用" : gpu.Error, 0, Theme.TextFaint);
+                Row(g, ref y, "GPU", gpu == null || string.IsNullOrEmpty(gpu.Error) ? "不可用" : gpu.Error, 0, Theme.TextTertiary);
             }
 
-            // 磁盘：行数够就一块一块画，不够就合成一行汇总（卡片高度有限，不做无意义的裁剪）
-            int slotsForDrives = capacity - 4;          // 已画 3 行，给温度留 1 行
-            if (_snap.Drives.Count > 0 && slotsForDrives >= _snap.Drives.Count)
+            int slots = capacity - 4;
+            if (_snap.Drives.Count > 0 && slots >= _snap.Drives.Count)
             {
                 foreach (DriveInfoRow d in _snap.Drives)
                 {
-                    string label = "磁盘 " + d.Letter + (string.IsNullOrEmpty(d.Label) ? "" : "（" + Shorten(d.Label, 10) + "）");
-                    string text = "剩余 " + d.FreeGb.ToString("0.0") + " / " + d.TotalGb.ToString("0.0") + " GB";
-                    Row(g, ref y, label, text, d.UsedPercent / 100.0, ColorFor(d.UsedPercent));
+                    string label = "磁盘 " + d.Letter + (string.IsNullOrEmpty(d.Label) ? "" : "（" + Fluent.Shorten(d.Label, 8) + "）");
+                    Row(g, ref y, label, "剩余 " + d.FreeGb.ToString("0.0") + " / " + d.TotalGb.ToString("0.0") + " GB",
+                        d.UsedPercent / 100.0, Fluent.MeterColor(d.UsedPercent));
                 }
             }
-            else if (_snap.Drives.Count > 0 && slotsForDrives >= 1)
+            else if (_snap.Drives.Count > 0 && slots >= 1)
             {
                 double free = 0, total = 0, worst = 0;
                 foreach (DriveInfoRow d in _snap.Drives)
@@ -83,48 +77,37 @@ namespace Hz.Panels
                     if (d.UsedPercent > worst) worst = d.UsedPercent;
                 }
                 Row(g, ref y, "磁盘 " + _snap.Drives.Count + " 个（合计）",
-                    "剩余 " + free.ToString("0.0") + " / " + total.ToString("0.0") + " GB", worst / 100.0, ColorFor(worst));
+                    "剩余 " + free.ToString("0.0") + " / " + total.ToString("0.0") + " GB", worst / 100.0, Fluent.MeterColor(worst));
             }
 
             if (y + RowHeight <= Height + 4)
             {
-                string tempText;
-                if (_snap.CpuTempC.HasValue) tempText = _snap.CpuTempC.Value.ToString("0.0") + " ℃";
-                else tempText = string.IsNullOrEmpty(_snap.CpuTempNote) ? "不可用" : _snap.CpuTempNote;
-                Row(g, ref y, "CPU 温度", tempText, 0, _snap.CpuTempC.HasValue ? ColorFor(_snap.CpuTempC.Value * 1.4) : Theme.TextFaint);
+                string tempText = _snap.CpuTempC.HasValue
+                    ? _snap.CpuTempC.Value.ToString("0.0") + " ℃"
+                    : ShortTempNote(_snap.CpuTempNote);
+                Row(g, ref y, "CPU 温度", tempText, 0,
+                    _snap.CpuTempC.HasValue ? Fluent.MeterColor(_snap.CpuTempC.Value * 1.4) : Theme.TextTertiary);
             }
+        }
 
-            if (!string.IsNullOrEmpty(_extraNote))
-            {
-                TextRenderer.DrawText(g, _extraNote, Theme.FontSmall, new Point(0, y + 4), Theme.TextFaint, TextFormatFlags.NoPadding);
-            }
+        /// 温度拿不到时给一句人话，而不是把 ManagementException 原文糊上去（会溢出卡片）。
+        private static string ShortTempNote(string note)
+        {
+            if (string.IsNullOrEmpty(note)) return "不可用";
+            if (note.StartsWith("读取失败", StringComparison.Ordinal)) return "不可用（需管理员权限）";
+            if (note.StartsWith("主板未暴露", StringComparison.Ordinal)) return "不可用（主板无传感器）";
+            return note;
         }
 
         private void Row(Graphics g, ref int y, string label, string value, double ratio, Color color)
         {
-            TextRenderer.DrawText(g, label, Theme.FontUi, new Point(0, y + 2), Theme.TextDim, TextFormatFlags.NoPadding);
-            Size vs = TextRenderer.MeasureText(value, Theme.FontMono);
-            TextRenderer.DrawText(g, value, Theme.FontMono, new Point(Math.Max(150, Width - vs.Width), y + 2),
-                Theme.Text, TextFormatFlags.NoPadding);
+            Fluent.Text(g, label, Theme.Body, new RectangleF(0, y, Width * 0.52f, 22f), Theme.TextSecondary, ContentAlignment.MiddleLeft);
+            Fluent.Text(g, value, Theme.Mono, new RectangleF(Width * 0.48f, y, Width * 0.52f, 22f), Theme.TextPrimary, ContentAlignment.MiddleRight);
             if (ratio > 0)
             {
-                var bar = new RectangleF(0f, y + RowHeight - 12f, Math.Max(60, Width), 5f);
-                Soft.DrawMeter(g, bar, ratio, color);
+                Fluent.Meter(g, new RectangleF(0f, y + 26f, Math.Max(60, Width), 4f), ratio, color);
             }
             y += RowHeight;
-        }
-
-        private static Color ColorFor(double percent)
-        {
-            if (percent >= 85) return Theme.Danger;
-            if (percent >= 65) return Theme.Warn;
-            return Theme.Ok;
-        }
-
-        private static string Shorten(string text, int max)
-        {
-            if (string.IsNullOrEmpty(text)) return "";
-            return text.Length <= max ? text : text.Substring(0, max) + "…";
         }
     }
 }

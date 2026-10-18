@@ -40,6 +40,7 @@ namespace Hz
         private static int Main(string[] args)
         {
             Options opt = ParseArgs(args);
+            _quiet = opt.ExitAfterSeconds > 0;
 
             if (opt.Help)
             {
@@ -107,9 +108,12 @@ namespace Hz
             }
         }
 
+        private static bool _quiet;
+
         private static void Fatal(string what, Exception ex)
         {
             Log.Error(what, ex);
+            if (_quiet) return;   // 冒烟测试（--exit-after）下不弹窗：弹窗会挂住进程，阻塞自动化
             try
             {
                 MessageBox.Show(what + "：\r\n" + (ex == null ? "(无异常对象)" : ex.Message) +

@@ -76,6 +76,99 @@ namespace Hz
             catch { return 0; }
         }
 
+        // ── DWM：Win11 的 Mica 背景 / 圆角 / 暗色标题栏 ──────────────
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MARGINS
+        {
+            public int Left;
+            public int Right;
+            public int Top;
+            public int Bottom;
+        }
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref MARGINS margins);
+
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmGetColorizationColor(out uint colorization, out bool opaqueBlend);
+
+        private const int DwmwaUseImmersiveDarkMode = 20;
+        private const int DwmwaWindowCornerPreference = 33;
+        private const int DwmwaSystemBackdropType = 38;
+
+        private const int DwmsbtAuto = 0;
+        private const int DwmsbtNone = 1;
+        private const int DwmsbtMainWindow = 2;     // Mica
+        private const int DwmsbtTransientWindow = 3;
+        private const int DwmsbtTabbedWindow = 4;
+
+        /// Win11（build >= 22000）才支持 Mica / 圆角。
+        public static bool IsWindows11
+        {
+            get { return Environment.OSVersion.Version.Major >= 10 && Environment.OSVersion.Version.Build >= 22000; }
+        }
+
+        /// 给窗口套上 Mica + 圆角 + 暗色标题栏；返回是否成功套上 Mica。
+        public static bool ApplyMica(IntPtr hwnd, bool dark, bool extendFrame)
+        {
+            if (hwnd == IntPtr.Zero || !IsWindows11) return false;
+            bool ok = false;
+            try
+            {
+                int backdrop = DwmsbtMainWindow;
+                ok = DwmSetWindowAttribute(hwnd, DwmwaSystemBackdropType, ref backdrop, sizeof(int)) == 0;
+
+                int corner = 2;   // DWMWCP_ROUND
+                DwmSetWindowAttribute(hwnd, DwmwaWindowCornerPreference, ref corner, sizeof(int));
+
+                int darkFlag = dark ? 1 : 0;
+                DwmSetWindowAttribute(hwnd, DwmwaUseImmersiveDarkMode, ref darkFlag, sizeof(int));
+
+                if (extendFrame)
+                {
+                    var margins = new MARGINS { Left = -1, Right = -1, Top = -1, Bottom = -1 };
+                    DwmExtendFrameIntoClientArea(hwnd, ref margins);
+                }
+            }
+            catch { return false; }
+            return ok;
+        }
+
+        /// 主题切换后重套一次（DWM 只认调用时刻的状态）。
+        public static void RefreshBackdrop(IntPtr hwnd, bool dark)
+        {
+            if (hwnd == IntPtr.Zero || !IsWindows11) return;
+            try
+            {
+                int darkFlag = dark ? 1 : 0;
+                DwmSetWindowAttribute(hwnd, DwmwaUseImmersiveDarkMode, ref darkFlag, sizeof(int));
+                int backdrop = DwmsbtMainWindow;
+                DwmSetWindowAttribute(hwnd, DwmwaSystemBackdropType, ref backdrop, sizeof(int));
+            }
+            catch { }
+        }
+
+        // ── 无边框窗口的命中测试（自绘标题栏 + 原生缩放/贴边/Snap 布局）──
+
+        public const int WM_NCHITTEST = 0x0084;
+        public const int HTCLIENT = 1;
+        public const int HTCAPTION = 2;
+        public const int HTLEFT = 10;
+        public const int HTRIGHT = 11;
+        public const int HTTOP = 12;
+        public const int HTTOPLEFT = 13;
+        public const int HTTOPRIGHT = 14;
+        public const int HTBOTTOM = 15;
+        public const int HTBOTTOMLEFT = 16;
+        public const int HTBOTTOMRIGHT = 17;
+        public const int HTMINBUTTON = 8;
+        public const int HTMAXBUTTON = 9;
+        public const int HTCLOSE = 20;
+
         public static readonly IntPtr HWND_BROADCAST = new IntPtr(0xFFFF);
 
         /// 唤醒已运行实例的私有消息（值由系统分配，进程间一致）。

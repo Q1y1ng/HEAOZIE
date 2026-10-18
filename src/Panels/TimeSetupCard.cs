@@ -1,7 +1,6 @@
-// 可复用的「设定倒计时」卡片：时/分/秒微调 + 预设 + 目标时刻提示。
+// 「设定倒计时」卡片（Fluent 版）：Win11 数字步进器 + 预设按钮 + 目标时刻提示。
 //
-// 「定时电源」和「定时关闭应用」两页都需要这一块，抽出来共用 —— 否则两份实现
-// 迟早会漂移（原 Python 版就是两个文件里各写了一遍，改一处忘一处）。
+// 定时电源页与定时关闭应用页共用；compact=true 用于窄列（省掉"时/分/秒"单位字，改用冒号）。
 
 using System;
 using System.Collections.Generic;
@@ -10,7 +9,7 @@ using System.Windows.Forms;
 
 namespace Hz.Panels
 {
-    internal sealed class TimeSetupCard : SoftCard
+    internal sealed class TimeSetupCard : FluentCard
     {
         private readonly int[] _spin = new int[3];
         private readonly Label[] _spinText = new Label[3];
@@ -19,7 +18,6 @@ namespace Hz.Panels
         private string _override;
         private bool _locked;
 
-        /// 用户改了时间（面板据此刷新自己的状态文案）。
         public event Action Changed;
 
         public TimeSetupCard(string title, string subtitle, List<int> presets, int presetWidth)
@@ -27,31 +25,37 @@ namespace Hz.Panels
         {
         }
 
-        /// compact=true 用于窄列：省掉「时/分/秒」单位字，改用冒号分隔。
         public TimeSetupCard(string title, string subtitle, List<int> presets, int presetWidth, bool compact)
             : base(title, subtitle)
         {
-            var row = new FlowLayoutPanel
-            {
-                Location = new Point(16, 64),
-                Size = new Size(700, 36),
-                BackColor = Theme.Card,
-                WrapContents = false,
-                FlowDirection = FlowDirection.LeftToRight
-            };
             string[] units = { "时", "分", "秒" };
+            int x = 16;
             for (int i = 0; i < 3; i++)
             {
-                if (compact && i > 0) row.Controls.Add(Colon());
-                AddSpin(row, i, i == 0 ? 23 : 59, compact ? null : units[i]);
+                if (compact && i > 0)
+                {
+                    var colon = new Label
+                    {
+                        Text = ":",
+                        Font = Theme.Body,
+                        ForeColor = Theme.TextTertiary,
+                        BackColor = Color.Transparent,
+                        AutoSize = false,
+                        Size = new Size(14, 36),
+                        TextAlign = ContentAlignment.MiddleCenter,
+                        Location = new Point(x, 58)
+                    };
+                    Controls.Add(colon);
+                    x += 16;
+                }
+                x += AddSpin(i, x, i == 0 ? 23 : 59, compact ? null : units[i]);
             }
-            Controls.Add(row);
 
             var presetRow = new FlowLayoutPanel
             {
-                Location = new Point(16, 110),
+                Location = new Point(16, 104),
                 Size = new Size(760, 34),
-                BackColor = Theme.Card,
+                BackColor = Color.Transparent,
                 WrapContents = false,
                 FlowDirection = FlowDirection.LeftToRight
             };
@@ -60,7 +64,7 @@ namespace Hz.Panels
                 foreach (int secs in presets)
                 {
                     int captured = secs;
-                    var b = new SoftButton(PresetLabel(captured), presetWidth, 30) { Tone = Theme.TextDim };
+                    var b = new FluentButton(PresetLabel(captured), presetWidth, 32) { Style = FluentButtonStyle.Standard };
                     b.Click += delegate { SetSeconds(captured); };
                     _editable.Add(b);
                     presetRow.Controls.Add(b);
@@ -68,24 +72,26 @@ namespace Hz.Panels
             }
             Controls.Add(presetRow);
 
-            _hint = Soft.Label("目标时刻：--:--:--", Theme.TextFaint, Theme.FontSmall, true);
-            _hint.Location = new Point(16, 156);
+            _hint = new Label
+            {
+                Text = "目标时刻：--:--:--",
+                Font = Theme.Caption,
+                ForeColor = Theme.TextTertiary,
+                BackColor = Color.Transparent,
+                AutoSize = true,
+                Location = new Point(16, 148)
+            };
             Controls.Add(_hint);
         }
 
-        public TimeSpan Total
-        {
-            get { return new TimeSpan(_spin[0], _spin[1], _spin[2]); }
-        }
+        public TimeSpan Total { get { return new TimeSpan(_spin[0], _spin[1], _spin[2]); } }
 
-        /// 倒计时运行中锁住输入（并给出视觉反馈：按钮变灰）。
         public void Lock(bool locked)
         {
             _locked = locked;
             foreach (Control c in _editable)
             {
-                var b = c as SoftButton;
-                if (b != null) b.Enabled = !locked;
+                c.Enabled = !locked;
             }
         }
 
@@ -99,7 +105,6 @@ namespace Hz.Panels
             RefreshDisplay();
         }
 
-        /// 非空时覆盖默认的「目标时刻」提示（倒计时运行中显示真实目标时刻）。
         public void SetHintOverride(string text)
         {
             _override = text;
@@ -140,59 +145,53 @@ namespace Hz.Panels
             RefreshDisplay();
         }
 
-        private static Label Colon()
+        /// 返回这一组占用的宽度。
+        private int AddSpin(int index, int x, int max, string unit)
         {
-            return new Label
-            {
-                Width = 14,
-                Height = 30,
-                Text = ":",
-                TextAlign = ContentAlignment.MiddleCenter,
-                Font = Theme.FontMonoBig,
-                ForeColor = Theme.TextFaint,
-                BackColor = Theme.Card,
-                Margin = new Padding(0, 0, 0, 0)
-            };
-        }
-
-        private void AddSpin(FlowLayoutPanel row, int index, int max, string unit)
-        {
-            var minus = new SoftButton("", 30, 30) { Icon = GI.Minus, Tone = Theme.TextDim };
+            var minus = new FluentButton("", 34, 36) { Glyph = "\uE738" };   // Remove
+            minus.Location = new Point(x, 58);
             minus.Click += delegate { Bump(index, -1, max); };
+            _editable.Add(minus);
+            Controls.Add(minus);
 
             var value = new Label
             {
-                Width = 52,
-                Height = 30,
                 Text = "00",
+                Font = Theme.Subtitle,
+                ForeColor = Theme.TextPrimary,
+                BackColor = Color.Transparent,
+                AutoSize = false,
+                Size = new Size(56, 36),
                 TextAlign = ContentAlignment.MiddleCenter,
-                Font = Theme.FontMonoBig,
-                ForeColor = Theme.Text,
-                BackColor = Theme.Card
+                Location = new Point(x + 38, 58)
             };
             _spinText[index] = value;
+            Controls.Add(value);
 
-            var plus = new SoftButton("", 30, 30) { Icon = GI.Plus, Tone = Theme.TextDim };
+            var plus = new FluentButton("", 34, 36) { Glyph = "\uE710" };    // Add
+            plus.Location = new Point(x + 98, 58);
             plus.Click += delegate { Bump(index, 1, max); };
-
-            var unitLabel = new Label
-            {
-                Width = 26,
-                Height = 30,
-                Text = unit,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Font = Theme.FontSmall,
-                ForeColor = Theme.TextDim,
-                BackColor = Theme.Card,
-                Margin = new Padding(4, 0, 8, 0)
-            };
-
-            _editable.Add(minus);
             _editable.Add(plus);
-            row.Controls.Add(minus);
-            row.Controls.Add(value);
-            row.Controls.Add(plus);
-            if (unit != null) row.Controls.Add(unitLabel);
+            Controls.Add(plus);
+
+            int used = 138;
+            if (unit != null)
+            {
+                var unitLabel = new Label
+                {
+                    Text = unit,
+                    Font = Theme.Caption,
+                    ForeColor = Theme.TextTertiary,
+                    BackColor = Color.Transparent,
+                    AutoSize = false,
+                    Size = new Size(26, 36),
+                    TextAlign = ContentAlignment.MiddleLeft,
+                    Location = new Point(x + 136, 58)
+                };
+                Controls.Add(unitLabel);
+                used = 172;
+            }
+            return used;
         }
 
         public static string PresetLabel(int seconds)

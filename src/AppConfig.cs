@@ -16,8 +16,8 @@ namespace Hz
     {
         public const string Name = "HEAOZIE";
         public const string DisplayName = "HEAOZIE · 系统工具箱";
-        public const string Version = "1.0.0";
-        public const string BuildTag = "M4 收尾";
+        public const string Version = "1.1.0";
+        public const string BuildTag = "M5 Fluent UI";
     }
 
     internal sealed class AppConfig
@@ -44,6 +44,8 @@ namespace Hz
         public int LastTab;
         public bool CloseToTray = true;
         public bool TrimOnHide = true;
+        /// 外观：system（跟随系统，默认）/ dark / light
+        public string ThemeOverride = "system";
 
         // ── 定时电源 ────────────────────────────────────────────
         public string PowerAction = "sleep";
@@ -84,6 +86,7 @@ namespace Hz
             win["lastTab"] = 0;
             win["closeToTray"] = true;
             win["trimOnHide"] = true;
+            win["theme"] = "system";
 
             var power = new Dictionary<string, object>(StringComparer.Ordinal);
             power["action"] = "sleep";
@@ -208,6 +211,7 @@ namespace Hz
             LastTab = Json.Int(win, "lastTab", 0);
             CloseToTray = Json.Bool(win, "closeToTray", true);
             TrimOnHide = Json.Bool(win, "trimOnHide", true);
+            ThemeOverride = Json.Str(win, "theme", "system");
 
             var power = Json.Obj(Raw, "power");
             PowerAction = Json.Str(power, "action", "sleep");
@@ -264,6 +268,7 @@ namespace Hz
             win["lastTab"] = LastTab;
             win["closeToTray"] = CloseToTray;
             win["trimOnHide"] = TrimOnHide;
+            win["theme"] = ThemeOverride;
 
             var power = Json.Obj(Raw, "power");
             power["action"] = PowerAction;

@@ -63,13 +63,14 @@ namespace Hz.Sys
             }
         }
 
-        public static GI Glyph(PowerAction action)
+        /// 对应的 Segoe Fluent Icons 字形（界面按钮用）。
+        public static string Glyph(PowerAction action)
         {
             switch (action)
             {
-                case PowerAction.Shutdown: return GI.Power;
-                case PowerAction.Restart: return GI.Refresh;
-                default: return GI.Clock;
+                case PowerAction.Shutdown: return Theme.Ico.Power;
+                case PowerAction.Restart: return Theme.Ico.Refresh;
+                default: return Theme.Ico.Clock;
             }
         }
 

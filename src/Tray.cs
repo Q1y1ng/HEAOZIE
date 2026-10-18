@@ -1,17 +1,16 @@
-// 托盘：NotifyIcon + 自绘轻量菜单。
+// 托盘：NotifyIcon + 自绘轻量菜单（Fluent 观感）。
 //
-// 为什么不用 ContextMenuStrip：launch-center 实测那套 ToolStrip/ContextMenuStrip
-// 值约 4.6MB 工作集，而托盘菜单只是十几行文字。这里自己画一个 Form，
-// 懒创建 + 复用同一个实例，代价几乎为零。
+// 菜单是独立的小窗口（不是 Mica），所以这里用普通不透明底；但绘制与文字仍走 GDI+，
+// 与主界面同一套令牌，观感一致。
 
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
 namespace Hz
 {
-    /// 托盘与主窗体之间的最小契约（避免 Tray 直接依赖 MainForm 的具体实现）。
     internal interface ITrayHost
     {
         void ToggleFromTray();
@@ -48,10 +47,7 @@ namespace Hz
                 _host.ToggleFromTray();
                 return;
             }
-            if (e.Button == MouseButtons.Right)
-            {
-                ShowMenu(Cursor.Position);
-            }
+            if (e.Button == MouseButtons.Right) ShowMenu(Cursor.Position);
         }
 
         private void ShowMenu(Point at)
@@ -137,7 +133,7 @@ namespace Hz
             public bool Danger;
         }
 
-        private const int ItemHeight = 30;
+        private const int ItemHeight = 34;
         private const int SeparatorHeight = 9;
         private const int PadY = 6;
 
@@ -151,20 +147,17 @@ namespace Hz
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
             TopMost = true;
-            BackColor = Theme.Surface;
-            Font = Theme.FontUi;
+            BackColor = Theme.Layer;
+            Font = Theme.Body;
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer
                      | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
         }
 
+        public void Add(string text, Action run) { Add(text, run, false); }
+
         public void Add(string text, Action run, bool danger)
         {
             _items.Add(new Item { Text = text, Run = run, Danger = danger });
-        }
-
-        public void Add(string text, Action run)
-        {
-            Add(text, run, false);
         }
 
         public void AddSeparator()
@@ -175,13 +168,13 @@ namespace Hz
 
         public void PopupAt(Point screenPoint)
         {
-            int width = 190;
+            int width = 210;
             using (Graphics g = CreateGraphics())
             {
                 foreach (Item it in _items)
                 {
                     if (it.Separator) continue;
-                    int w = TextRenderer.MeasureText(g, it.Text, Theme.FontUi).Width + 44;
+                    int w = (int)Fluent.Measure(g, it.Text, Theme.Body).Width + 56;
                     if (w > width) width = w;
                 }
             }
@@ -208,7 +201,6 @@ namespace Hz
         protected override void OnDeactivate(EventArgs e)
         {
             base.OnDeactivate(e);
-            // 托盘点击常常拿不到前台焦点，会立刻触发一次 Deactivate；给它 250ms 宽限。
             if ((DateTime.UtcNow - _shownAt).TotalMilliseconds < 250) return;
             Hide();
         }
@@ -253,12 +245,12 @@ namespace Hz
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = e.Graphics;
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
             g.Clear(BackColor);
 
             var box = new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f);
-            Soft.Fill(g, box, 10f, Theme.Surface);
-            Soft.Stroke(g, box, 10f, Theme.CardBorder);
+            Fluent.Fill(g, box, Fluent.CardRadius, Theme.Layer);
+            Fluent.Stroke(g, box, Fluent.CardRadius, Fluent.CardStroke);
 
             int y = PadY;
             for (int i = 0; i < _items.Count; i++)
@@ -266,17 +258,18 @@ namespace Hz
                 Item it = _items[i];
                 if (it.Separator)
                 {
-                    using (var pen = new Pen(Theme.CardBorder))
-                        g.DrawLine(pen, 10, y + SeparatorHeight / 2, Width - 10, y + SeparatorHeight / 2);
+                    using (var pen = new Pen(Theme.Divider))
+                        g.DrawLine(pen, 12, y + SeparatorHeight / 2, Width - 12, y + SeparatorHeight / 2);
                     y += SeparatorHeight;
                     continue;
                 }
                 var row = new RectangleF(5f, y, Width - 10f, ItemHeight);
-                if (i == _hover) Soft.Fill(g, row, 7f, it.Danger ? Theme.Alpha(Theme.Danger, 46) : Theme.CardHover);
-                Color fg = it.Danger ? Theme.Danger : (i == _hover ? Theme.Text : Theme.TextDim);
-                Size ts = TextRenderer.MeasureText(it.Text, Theme.FontUi);
-                TextRenderer.DrawText(g, it.Text, Theme.FontUi,
-                    new Point(14, y + (ItemHeight - ts.Height) / 2), fg, TextFormatFlags.NoPadding);
+                if (i == _hover)
+                {
+                    Fluent.Fill(g, row, Fluent.ControlRadius, it.Danger ? Theme.Alpha(Theme.Danger, 40) : Theme.SubtleFillHover);
+                }
+                Color fg = it.Danger ? Theme.Danger : (i == _hover ? Theme.TextPrimary : Theme.TextSecondary);
+                Fluent.Text(g, it.Text, Theme.Body, new RectangleF(16f, y, Width - 24f, ItemHeight), fg, ContentAlignment.MiddleLeft);
                 y += ItemHeight;
             }
         }

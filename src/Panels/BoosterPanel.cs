@@ -1,13 +1,7 @@
-// 「游戏加速」页：实时状态 + 一键 Turbo + 分类进程预览 + 日志。
+// 「游戏加速」页（Fluent 版）：实时状态 + 一键 Turbo + 分类/选项开关 + 日志。
 //
-// 对照原 Python 版 gaming_booster（860 行 GUI + 786 行核心）：
-//   · 保留：实时状态（CPU/内存/GPU/磁盘/温度，2 秒刷新）、一键 Turbo（结束后台进程 →
-//     整理内存 → 清理临时文件 → 高性能电源计划 → 刷新 DNS）、分类勾选、白名单、日志面板、
-//     恢复电源计划、UAC 提权入口；
-//   · 改进：内存整理走 memclean 的**系统级**空工作集（原版那段"清理 Standby Memory"
-//     是两条无效的 PowerShell 咒语，已丢弃）；恢复电源计划改成恢复**切换前**的计划
-//     （原版写死 Balanced）；GPU/温度拿不到时如实说明原因，不再静默显示 0；
-//     Turbo 在后台线程跑，界面不卡死，每一步结果实时进日志。
+// 逻辑与 v1 相同（Turbo 在后台线程跑、分类名单、白名单双向同步、预演模式），
+// 只换了外观层：开关用 Win11 ToggleSwitch，按钮用 Fluent 样式，文字全部 GDI+ 自绘。
 
 using System;
 using System.Collections.Generic;
@@ -22,16 +16,15 @@ namespace Hz.Panels
     {
         private readonly SystemMonitor _monitor = new SystemMonitor();
         private readonly System.Windows.Forms.Timer _statusTimer = new System.Windows.Forms.Timer { Interval = 2000 };
-        private readonly Dictionary<string, SoftButton> _categoryButtons = new Dictionary<string, SoftButton>(StringComparer.Ordinal);
-        private readonly Dictionary<string, SoftButton> _optionButtons = new Dictionary<string, SoftButton>(StringComparer.Ordinal);
+        private readonly Dictionary<string, FluentButton> _categoryButtons = new Dictionary<string, FluentButton>(StringComparer.Ordinal);
+        private readonly Dictionary<string, FluentToggleSwitch> _optionToggles = new Dictionary<string, FluentToggleSwitch>(StringComparer.Ordinal);
 
         private StatusView _status;
-        private Label _statusNote;
+        private FluentText _statusNote;
         private LogView _log;
         private ProcTable _table;
-        private SoftButton _btnTurbo;
-        private SoftButton _btnRestore;
-        private Label _previewNote;
+        private FluentButton _btnTurbo;
+        private FluentText _previewNote;
         private int _tick;
         private bool _busy;
         private bool _live;
@@ -41,90 +34,87 @@ namespace Hz.Panels
 
         public BoosterPanel(IHzHost host) : base(host)
         {
-            TableLayoutPanel split = BuildSplitLayout(520f);
+            TableLayoutPanel split = BuildSplitLayout(440f);
             split.Controls.Add(BuildColumn(BuildStatusCard(), BuildTurboCard()), 0, 0);
             split.Controls.Add(BuildRightColumn(), 1, 0);
 
             _statusTimer.Tick += delegate { RefreshStatus(); };
             _log.Append("就绪。勾选分类后点「一键 Turbo」；每一步结果都会写在这里。");
-            _log.Append("当前分类：" + BoosterOps.DescribeCategories(Host.Cfg.BoosterCats), Theme.TextFaint);
-            UpdateOptionButtons();
+            _log.Append("当前分类：" + BoosterOps.DescribeCategories(Host.Cfg.BoosterCats), Theme.TextTertiary);
+            UpdateOptionToggles();
         }
 
         // ── 左列 ────────────────────────────────────────────────
 
-        private SoftCard BuildStatusCard()
+        private FluentCard BuildStatusCard()
         {
-            var card = new SoftCard("系统状态", "2 秒刷新；GPU 走 nvidia-smi，温度走 WMI") { Height = 276 };
+            var card = new FluentCard("系统状态", "2 秒刷新 · GPU 走 nvidia-smi · 温度走 WMI") { Height = 268 };
+            var host = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0), BackColor = Color.Transparent };
             _status = new StatusView { Dock = DockStyle.Fill };
-            // 卡片的 Padding 已经把标题区留出来了，容器**不能再叠一层 58**（叠了会把内容挤没）
-            var host = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0), BackColor = Theme.Card };
             host.Controls.Add(_status);
             card.Controls.Add(host);
 
-            _statusNote = new Label
+            _statusNote = new FluentText("", Theme.Caption, Theme.TextTertiary)
             {
                 Dock = DockStyle.Bottom,
                 Height = 22,
-                AutoSize = false,
-                BackColor = Theme.Card,
-                ForeColor = Theme.TextFaint,
-                Font = Theme.FontSmall,
-                Padding = new Padding(16, 0, 0, 0)
+                Align = ContentAlignment.MiddleLeft
             };
             card.Controls.Add(_statusNote);
             return card;
         }
 
-        private SoftCard BuildTurboCard()
+        private FluentCard BuildTurboCard()
         {
-            var card = new SoftCard("一键 Turbo", "按顺序：结束后台进程 → 整理内存 → 清理临时文件 → 高性能电源 → 刷新 DNS")
-            { Height = 280 };
+            var card = new FluentCard("一键 Turbo", "结束后台进程 → 整理内存 → 清理临时文件 → 高性能电源 → 刷新 DNS")
+            { Height = 352 };
 
-            _btnTurbo = new SoftButton("一键 Turbo", 210, 44) { Primary = true, Icon = GI.Bolt };
-            _btnTurbo.Location = new Point(16, 58);
-            _btnTurbo.Font = Theme.FontUiBold;
+            _btnTurbo = new FluentButton("一键 Turbo", 200, 38) { Style = FluentButtonStyle.Accent, Glyph = Theme.Ico.Bolt };
+            _btnTurbo.Location = new Point(16, 56);
             _btnTurbo.Click += delegate { RunTurbo(); };
             card.Controls.Add(_btnTurbo);
 
-            _btnRestore = new SoftButton("恢复电源计划", 138, 34) { Icon = GI.Refresh };
-            _btnRestore.Location = new Point(236, 63);
-            _btnRestore.Click += delegate { RestorePowerPlan(); };
-            card.Controls.Add(_btnRestore);
-
-            var white = new SoftButton("白名单", 96, 34) { Icon = GI.Shield };
-            white.Location = new Point(382, 63);
+            var white = new FluentButton("白名单", 120, 38) { Style = FluentButtonStyle.Standard, Glyph = Theme.Ico.Lock };
+            white.Location = new Point(224, 56);
             white.Click += delegate { EditWhitelist(); };
             card.Controls.Add(white);
 
             var options = new FlowLayoutPanel
             {
-                Location = new Point(16, 110),
-                Size = new Size(480, 78),
-                BackColor = Theme.Card,
+                Location = new Point(16, 104),
+                Size = new Size(410, 164),
+                BackColor = Color.Transparent,
                 WrapContents = true,
                 FlowDirection = FlowDirection.LeftToRight
             };
-            AddOption(options, "kill", "结束后台进程", 148);
-            AddOption(options, "trim", "整理内存", 118);
-            AddOption(options, "clean", "清理临时文件", 148);
-            AddOption(options, "power", "高性能电源", 138);
-            AddOption(options, "dns", "刷新 DNS", 118);
-            AddOption(options, "strong", "强效内存整理", 148);
-            AddOption(options, "prefetch", "清理 Prefetch", 138);
+            AddToggle(options, "kill", "结束后台进程");
+            AddToggle(options, "trim", "整理内存");
+            AddToggle(options, "clean", "清理临时文件");
+            AddToggle(options, "power", "高性能电源");
+            AddToggle(options, "dns", "刷新 DNS");
+            AddToggle(options, "strong", "强效内存整理");
+            AddToggle(options, "prefetch", "清理 Prefetch");
             card.Controls.Add(options);
 
             string note = SysEnv.IsAdmin()
-                ? "当前是管理员权限：强效内存整理与 Prefetch 清理可用。"
-                : "当前是普通用户：强效内存整理需要管理员（自动回退温和），Prefetch 清理会跳过。";
-            var hint = Soft.Label(note, Theme.TextFaint, Theme.FontSmall, true);
-            hint.Location = new Point(16, 194);
-            card.Controls.Add(hint);
+                ? "管理员权限：强效内存整理与 Prefetch 清理可用。"
+                : "普通用户：强效内存整理需管理员（自动回退温和），Prefetch 清理会跳过。";
+            card.Controls.Add(new FluentText(note, Theme.Caption, Theme.TextTertiary)
+            {
+                Location = new Point(16, 252),
+                Size = new Size(410, 18),
+                Align = ContentAlignment.MiddleLeft
+            });
+
+            var restore = new FluentButton("恢复电源计划", 150, 32) { Style = FluentButtonStyle.Standard, Glyph = Theme.Ico.Refresh };
+            restore.Location = new Point(16, 276);
+            restore.Click += delegate { RestorePowerPlan(); };
+            card.Controls.Add(restore);
 
             if (!SysEnv.IsAdmin())
             {
-                var elevate = new SoftButton("以管理员重启", 130, 30) { Icon = GI.Shield, Tone = Theme.Info };
-                elevate.Location = new Point(16, 216);
+                var elevate = new FluentButton("以管理员重启", 150, 32) { Style = FluentButtonStyle.Standard, Glyph = Theme.Ico.Lock };
+                elevate.Location = new Point(176, 276);
                 elevate.Click += delegate
                 {
                     Host.Log("用户请求以管理员身份重启");
@@ -135,12 +125,12 @@ namespace Hz.Panels
             return card;
         }
 
-        private void AddOption(FlowLayoutPanel host, string key, string text, int width)
+        private void AddToggle(FlowLayoutPanel host, string key, string text)
         {
-            var b = new SoftButton(text, width, 30) { Tone = Theme.TextDim };
-            b.Click += delegate { ToggleOption(key); };
-            _optionButtons[key] = b;
-            host.Controls.Add(b);
+            var t = new FluentToggleSwitch(text, 196) { Margin = new Padding(0, 0, 8, 6) };
+            t.CheckedChanged += delegate { ToggleOption(key); };
+            _optionToggles[key] = t;
+            host.Controls.Add(t);
         }
 
         // ── 右列 ────────────────────────────────────────────────
@@ -150,27 +140,26 @@ namespace Hz.Panels
             var right = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Theme.Bg,
+                BackColor = Color.Transparent,
                 ColumnCount = 1,
                 RowCount = 2,
-                Margin = new Padding(14, 0, 0, 0)
+                Margin = new Padding(16, 0, 0, 0)
             };
             right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             right.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
-            right.RowStyles.Add(new RowStyle(SizeType.Absolute, 232f));
-
+            right.RowStyles.Add(new RowStyle(SizeType.Absolute, 200f));
             right.Controls.Add(BuildProcessCard(), 0, 0);
             right.Controls.Add(BuildLogCard(), 0, 1);
             return right;
         }
 
-        private SoftCard BuildProcessCard()
+        private FluentCard BuildProcessCard()
         {
-            var card = new SoftCard("后台进程（按分类）",
-                "勾选框 = 本次会被结束；取消勾选会把这个进程名加入白名单（以后也不结束）") { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 12) };
+            var card = new FluentCard("后台进程（按分类）",
+                "勾选框 = 本次会被结束；取消勾选会把这个进程名加入白名单") { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 16) };
 
-            // 添加顺序 = 停靠处理的反序：Fill 必须最先加，否则 Top/Bottom 会压在它上面
-            var host = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0, 0, 0, 4), BackColor = Theme.Card };
+            // Fill 必须先加，否则会被后加的 Top/Bottom 压住
+            var host = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0), BackColor = Color.Transparent };
             _table = new ProcTable { Dock = DockStyle.Fill };
             _table.SelectionChanged += delegate { SyncWhitelistFromTable(); };
             host.Controls.Add(_table);
@@ -179,14 +168,14 @@ namespace Hz.Panels
             var chips = new FlowLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 74,
-                BackColor = Theme.Card,
+                Height = 80,
+                BackColor = Color.Transparent,
                 WrapContents = true,
-                Padding = new Padding(0, 0, 0, 6)
+                Padding = new Padding(0, 0, 0, 4)
             };
             foreach (string key in BoosterOps.CategoryOrder)
             {
-                var b = new SoftButton(BoosterOps.CategoryLabels[key], 96, 28) { Tone = Theme.TextDim };
+                var b = new FluentButton(BoosterOps.CategoryLabels[key], 96, 32) { Style = FluentButtonStyle.Standard, Margin = new Padding(0, 0, 6, 6) };
                 string captured = key;
                 b.Click += delegate { ToggleCategory(captured); };
                 _categoryButtons[key] = b;
@@ -194,15 +183,14 @@ namespace Hz.Panels
             }
             card.Controls.Add(chips);
 
-            FlowLayoutPanel row = AddButtonRow(card, false);
-            var refresh = new SoftButton("刷新", 78, 30) { Icon = GI.Refresh };
+            FlowLayoutPanel row = AddButtonRow(card, 44, false);
+            var refresh = new FluentButton("刷新", 84, 32) { Glyph = Theme.Ico.Refresh };
             refresh.Click += delegate { RefreshProcessPreview(); };
-            var all = new SoftButton("全选", 72, 30) { Icon = GI.Check };
+            var all = new FluentButton("全选", 78, 32) { Glyph = Theme.Ico.Check };
             all.Click += delegate { _table.CheckAll(); SyncWhitelistFromTable(); };
-            var none = new SoftButton("全部排除", 96, 30) { Icon = GI.Close };
+            var none = new FluentButton("全部排除", 100, 32) { Glyph = Theme.Ico.Close };
             none.Click += delegate { _table.UncheckAll(); SyncWhitelistFromTable(); };
-            _previewNote = Soft.Label("", Theme.TextFaint, Theme.FontSmall, true);
-            _previewNote.Margin = new Padding(10, 8, 0, 0);
+            _previewNote = new FluentText("", Theme.Caption, Theme.TextTertiary) { Size = new Size(110, 32), Margin = new Padding(6, 0, 0, 0), Align = ContentAlignment.MiddleLeft };
             row.Controls.Add(refresh);
             row.Controls.Add(all);
             row.Controls.Add(none);
@@ -210,20 +198,20 @@ namespace Hz.Panels
             return card;
         }
 
-        private SoftCard BuildLogCard()
+        private FluentCard BuildLogCard()
         {
-            var card = new SoftCard("日志", null) { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 0) };
-            var host = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0, 0, 0, 4), BackColor = Theme.Card };
+            var card = new FluentCard("日志", null) { Dock = DockStyle.Fill, Margin = new Padding(0) };
+            var host = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0), BackColor = Color.Transparent };
             _log = new LogView { Dock = DockStyle.Fill };
             host.Controls.Add(_log);
             card.Controls.Add(host);
 
-            FlowLayoutPanel row = AddButtonRow(card, false, 40, false);
-            var clear = new SoftButton("清空", 78, 28) { Icon = GI.Trash };
+            FlowLayoutPanel row = AddButtonRow(card, 44, false);
+            var clear = new FluentButton("清空", 84, 32) { Glyph = Theme.Ico.Delete };
             clear.Click += delegate { _log.Clear(); };
-            var copy = new SoftButton("复制日志", 100, 28) { Icon = GI.Info };
+            var copy = new FluentButton("复制日志", 108, 32) { Glyph = Theme.Ico.Copy };
             copy.Click += delegate { CopyLog(); };
-            var open = new SoftButton("打开日志文件", 122, 28) { Icon = GI.Folder };
+            var open = new FluentButton("打开日志文件", 132, 32) { Glyph = Theme.Ico.Folder };
             open.Click += delegate { OpenLogFile(); };
             row.Controls.Add(clear);
             row.Controls.Add(copy);
@@ -237,13 +225,13 @@ namespace Hz.Panels
         {
             if (!_live) return;
             _tick++;
-            bool withGpu = (_tick % 2) == 1;          // nvidia-smi 是外部进程，隔一次查
-            bool withTemp = (_tick % 5) == 1;         // WMI 更慢，5 次查一次（内部还有 10 秒缓存）
+            bool withGpu = (_tick % 2) == 1;
+            bool withTemp = (_tick % 5) == 1;
             SystemSnapshot snap = _monitor.Capture(withGpu, withTemp);
-            _status.Update(snap, "");
+            _status.Update(snap);
             string note = "刷新于 " + snap.At.ToString("HH:mm:ss");
             if (!string.IsNullOrEmpty(Host.Cfg.BoosterLastRun)) note += " · 上次 Turbo " + Host.Cfg.BoosterLastRun;
-            _statusNote.Text = note;
+            _statusNote.SetText(note);
         }
 
         // ── 分类与选项 ──────────────────────────────────────────
@@ -260,49 +248,55 @@ namespace Hz.Panels
 
         private void UpdateCategoryButtons()
         {
-            foreach (KeyValuePair<string, SoftButton> kv in _categoryButtons)
+            foreach (KeyValuePair<string, FluentButton> kv in _categoryButtons)
             {
-                bool on = Host.Cfg.BoosterCats.Get(kv.Key);
-                kv.Value.Primary = on;
-                kv.Value.Tone = on ? Color.White : Theme.TextDim;
+                kv.Value.Selected = Host.Cfg.BoosterCats.Get(kv.Key);
                 kv.Value.Invalidate();
             }
         }
 
         private void ToggleOption(string key)
         {
+            bool value = !GetOption(key);
+            SetOption(key, value);
+            Host.Cfg.Save();
+        }
+
+        private bool GetOption(string key)
+        {
             switch (key)
             {
-                case "kill": Host.Cfg.BoosterKill = !Host.Cfg.BoosterKill; break;
-                case "trim": Host.Cfg.BoosterTrim = !Host.Cfg.BoosterTrim; break;
-                case "clean": Host.Cfg.BoosterCleanTemp = !Host.Cfg.BoosterCleanTemp; break;
-                case "power": Host.Cfg.BoosterHighPerf = !Host.Cfg.BoosterHighPerf; break;
-                case "dns": Host.Cfg.BoosterFlushDns = !Host.Cfg.BoosterFlushDns; break;
-                case "strong": Host.Cfg.BoosterStrongTrim = !Host.Cfg.BoosterStrongTrim; break;
-                case "prefetch": Host.Cfg.BoosterCleanPrefetch = !Host.Cfg.BoosterCleanPrefetch; break;
+                case "kill": return Host.Cfg.BoosterKill;
+                case "trim": return Host.Cfg.BoosterTrim;
+                case "clean": return Host.Cfg.BoosterCleanTemp;
+                case "power": return Host.Cfg.BoosterHighPerf;
+                case "dns": return Host.Cfg.BoosterFlushDns;
+                case "strong": return Host.Cfg.BoosterStrongTrim;
+                case "prefetch": return Host.Cfg.BoosterCleanPrefetch;
+                default: return false;
             }
-            Host.Cfg.Save();
-            UpdateOptionButtons();
         }
 
-        private void UpdateOptionButtons()
+        private void SetOption(string key, bool value)
         {
-            SetOption("kill", Host.Cfg.BoosterKill);
-            SetOption("trim", Host.Cfg.BoosterTrim);
-            SetOption("clean", Host.Cfg.BoosterCleanTemp);
-            SetOption("power", Host.Cfg.BoosterHighPerf);
-            SetOption("dns", Host.Cfg.BoosterFlushDns);
-            SetOption("strong", Host.Cfg.BoosterStrongTrim);
-            SetOption("prefetch", Host.Cfg.BoosterCleanPrefetch);
+            switch (key)
+            {
+                case "kill": Host.Cfg.BoosterKill = value; break;
+                case "trim": Host.Cfg.BoosterTrim = value; break;
+                case "clean": Host.Cfg.BoosterCleanTemp = value; break;
+                case "power": Host.Cfg.BoosterHighPerf = value; break;
+                case "dns": Host.Cfg.BoosterFlushDns = value; break;
+                case "strong": Host.Cfg.BoosterStrongTrim = value; break;
+                case "prefetch": Host.Cfg.BoosterCleanPrefetch = value; break;
+            }
         }
 
-        private void SetOption(string key, bool on)
+        private void UpdateOptionToggles()
         {
-            SoftButton b;
-            if (!_optionButtons.TryGetValue(key, out b)) return;
-            b.Primary = on;
-            b.Tone = on ? Color.White : Theme.TextDim;
-            b.Invalidate();
+            foreach (KeyValuePair<string, FluentToggleSwitch> kv in _optionToggles)
+            {
+                kv.Value.Checked = GetOption(kv.Key);
+            }
         }
 
         // ── 进程预览与白名单 ────────────────────────────────────
@@ -321,8 +315,7 @@ namespace Hz.Panels
             foreach (ProcEntry e in ProcList.Enumerate())
             {
                 string bare = e.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-                    ? e.Name.Substring(0, e.Name.Length - 4)
-                    : e.Name;
+                    ? e.Name.Substring(0, e.Name.Length - 4) : e.Name;
                 if (wanted.Contains(bare)) rows.Add(e);
             }
             _table.SetRows(rows);
@@ -339,12 +332,9 @@ namespace Hz.Panels
             if (_previewNote == null) return;
             int total = _table.RowCount;
             int will = _table.CheckedPids.Count;
-            _previewNote.Text = total == 0
-                ? "当前分类下没有正在运行的进程"
-                : "匹配 " + total + " 个，将结束 " + will + " 个";
+            _previewNote.SetText(total == 0 ? "无匹配进程" : "将结束 " + will + "/" + total);
         }
 
-        /// 表格勾选 ↔ 白名单双向同步（取消勾选即加入白名单）。
         private void SyncWhitelistFromTable()
         {
             if (_table == null) return;
@@ -353,10 +343,9 @@ namespace Hz.Panels
             var updated = new List<string>();
             foreach (string name in Host.Cfg.BoosterWhitelist)
             {
-                if (checkedNames.Contains(name)) { changed = true; continue; }   // 重新勾选 = 移出白名单
+                if (checkedNames.Contains(name)) { changed = true; continue; }
                 updated.Add(name);
             }
-            // 表格里被取消勾选的进程名加入白名单
             foreach (string name in _table.UncheckedNames)
             {
                 if (!updated.Contains(name)) { updated.Add(name); changed = true; }
@@ -375,36 +364,37 @@ namespace Hz.Panels
             using (var dlg = new Form
             {
                 Text = "白名单 · 每行一个进程名（如 chrome.exe）",
-                Size = new Size(420, 470),
+                Size = new Size(440, 480),
                 StartPosition = FormStartPosition.CenterParent,
-                BackColor = Theme.Bg,
-                ForeColor = Theme.Text,
-                Font = Theme.FontUi,
+                BackColor = Theme.Layer,
+                ForeColor = Theme.TextPrimary,
+                Font = Theme.Body,
                 MinimizeBox = false,
                 MaximizeBox = false,
+                FormBorderStyle = FormBorderStyle.SizableToolWindow,
                 Icon = Theme.AppIcon(16)
             })
             {
-                var boxHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(14), BackColor = Theme.Bg };
                 var box = new TextBox
                 {
                     Dock = DockStyle.Fill,
                     Multiline = true,
                     ScrollBars = ScrollBars.Vertical,
-                    BackColor = Theme.Card,
-                    ForeColor = Theme.Text,
+                    BackColor = Theme.LayerAlt,
+                    ForeColor = Theme.TextPrimary,
                     BorderStyle = BorderStyle.FixedSingle,
-                    Font = Theme.FontMono,
+                    Font = Theme.Mono,
                     Text = string.Join("\r\n", Host.Cfg.BoosterWhitelist.ToArray())
                 };
+                var boxHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(14), BackColor = Theme.Layer };
                 boxHost.Controls.Add(box);
                 dlg.Controls.Add(boxHost);
 
-                var buttons = new Panel { Dock = DockStyle.Bottom, Height = 52, BackColor = Theme.Bg, Padding = new Padding(14, 8, 14, 8) };
-                var save = new SoftButton("保存", 96, 32) { Primary = true };
-                save.Location = new Point(180, 10);
-                var cancel = new SoftButton("取消", 96, 32);
-                cancel.Location = new Point(286, 10);
+                var buttons = new Panel { Dock = DockStyle.Bottom, Height = 56, BackColor = Theme.Layer, Padding = new Padding(14, 10, 14, 10) };
+                var save = new FluentButton("保存", 96, 32) { Style = FluentButtonStyle.Accent };
+                save.Location = new Point(190, 12);
+                var cancel = new FluentButton("取消", 96, 32);
+                cancel.Location = new Point(296, 12);
                 cancel.Click += delegate { dlg.DialogResult = DialogResult.Cancel; dlg.Close(); };
                 save.Click += delegate
                 {
@@ -412,8 +402,8 @@ namespace Hz.Panels
                     foreach (string raw in box.Text.Replace("\r", "").Split('\n'))
                     {
                         string name = raw.Trim();
-                        if (name.Length == 0) continue;
-                        if (!list.Contains(name)) list.Add(name);
+                        if (name.Length == 0 || list.Contains(name)) continue;
+                        list.Add(name);
                     }
                     Host.Cfg.BoosterWhitelist.Clear();
                     Host.Cfg.BoosterWhitelist.AddRange(list);
@@ -425,7 +415,6 @@ namespace Hz.Panels
                 buttons.Controls.Add(save);
                 buttons.Controls.Add(cancel);
                 dlg.Controls.Add(buttons);
-                dlg.AcceptButton = null;
 
                 dlg.ShowDialog(FindForm());
                 RefreshProcessPreview();
@@ -458,14 +447,9 @@ namespace Hz.Panels
             return opt;
         }
 
-        private void RunTurbo()
-        {
-            RunTurbo(false);
-        }
+        private void RunTurbo() { RunTurbo(false, null); }
 
-        /// 冒烟测试入口：走完整编排与日志，但后台进程只预演、其余动作一律不执行。
-        /// 延迟 400ms 再跑：面板是在主窗口构造期创建的，那时窗口句柄还没建好，
-        /// 工作线程的 BeginInvoke 会失败（真实点击时不存在这个问题）。
+        /// 冒烟测试入口：延迟 400ms（面板在构造期创建，那时窗口句柄还没建好）。
         internal void DemoStart()
         {
             var delay = new System.Windows.Forms.Timer { Interval = 400 };
@@ -473,16 +457,14 @@ namespace Hz.Panels
             {
                 delay.Stop();
                 delay.Dispose();
-                _log.Append("演示模式：只预演「将结束哪些进程」，内存/清理/电源/DNS 全部跳过", Theme.Warn);
+                _log.Append("演示模式：只预演「将结束哪些进程」，内存/清理/电源/DNS 全部跳过", Theme.Warning);
                 var opt = new BoosterOptions
                 {
                     KillProcesses = true,
                     TrimMemory = true,
                     CleanTemp = true,
                     HighPerformance = true,
-                    FlushDns = true,
-                    StrongTrim = false,
-                    CleanPrefetch = false
+                    FlushDns = true
                 };
                 opt.Categories.Browsers = true;
                 opt.Categories.Chat = true;
@@ -491,18 +473,13 @@ namespace Hz.Panels
             delay.Start();
         }
 
-        private void RunTurbo(bool dryRun)
-        {
-            RunTurbo(dryRun, null);
-        }
-
         private void RunTurbo(bool dryRun, BoosterOptions preset)
         {
             if (_busy) return;
             _busy = true;
             _btnTurbo.Enabled = false;
             _btnTurbo.Text = dryRun ? "预演中…" : "加速中…";
-            _log.Append("──── " + DateTime.Now.ToString("HH:mm:ss") + (dryRun ? "（预演）" : "") + " ────", Theme.Info);
+            _log.Append("──── " + DateTime.Now.ToString("HH:mm:ss") + (dryRun ? "（预演）" : "") + " ────", Theme.Accent);
 
             BoosterOptions opt = preset ?? CollectOptions();
             _lastDryRun = dryRun;
@@ -532,10 +509,7 @@ namespace Hz.Panels
             worker.Start();
         }
 
-        private void Post(string line)
-        {
-            Post(line, Theme.TextDim);
-        }
+        private void Post(string line) { Post(line, Theme.TextSecondary); }
 
         private void Post(string line, Color color)
         {
@@ -553,10 +527,7 @@ namespace Hz.Panels
             _btnTurbo.Enabled = true;
             _btnTurbo.Text = "一键 Turbo";
             Host.Cfg.BoosterLastRun = DateTime.Now.ToString("HH:mm:ss");
-            if (report != null && report.PowerChanged)
-            {
-                Host.Cfg.BoosterPreviousPowerPlan = report.PreviousPowerPlan;
-            }
+            if (report != null && report.PowerChanged) Host.Cfg.BoosterPreviousPowerPlan = report.PreviousPowerPlan;
             Host.Cfg.Save();
 
             if (report == null)
@@ -588,7 +559,7 @@ namespace Hz.Panels
             {
                 Host.Log("已恢复电源计划：" + Host.Cfg.BoosterPreviousPowerPlan);
                 Host.SetStatus("已恢复切换前的电源计划");
-                _log.Append("已恢复电源计划：" + Host.Cfg.BoosterPreviousPowerPlan, Theme.Ok);
+                _log.Append("已恢复电源计划：" + Host.Cfg.BoosterPreviousPowerPlan, Theme.Success);
                 Host.Cfg.BoosterPreviousPowerPlan = "";
                 Host.Cfg.Save();
             }
@@ -635,7 +606,7 @@ namespace Hz.Panels
         {
             _live = true;
             UpdateCategoryButtons();
-            UpdateOptionButtons();
+            UpdateOptionToggles();
             RefreshStatus();
             RefreshProcessPreview();
             _statusTimer.Start();
@@ -643,7 +614,6 @@ namespace Hz.Panels
 
         public override void OnLeave()
         {
-            // 离开本页就停表：状态刷新是唯一会持续吃 CPU 的东西，隐藏时必须停
             _live = false;
             _statusTimer.Stop();
         }

@@ -1,5 +1,39 @@
 # 变更记录
 
+## [未发布]
+
+### 变更（M5 · 界面重做为 Windows 11 Fluent）
+
+> 起因：v1 的观感是"深色 Web 仪表盘"，与 Win11 原生应用不是一回事。本轮把整个外观层重做，
+> **逻辑层一行未动**（倒计时、进程表、Turbo 编排、安全名单、白名单、配置格式全部照旧）。
+
+- **左侧 NavigationView** 取代顶部胶囊 Tab（图标 + 文字，选中项带强调色竖条）；
+- **自绘标题栏**：应用图标 + 名称 + 最小化/最大化/关闭，拖动/双击最大化/八向缩放
+  全部交给系统（`WM_NCHITTEST` 返回 `HTCAPTION` / `HT*` / `HTMINBUTTON` / `HTMAXBUTTON` / `HTCLOSE`），
+  **最大化按钮悬停会出 Win11 Snap 布局**；
+- **Mica 背景**（`DWMWA_SYSTEMBACKDROP_TYPE` + 客户区 alpha 透出）+ 圆角 + 暗色标题栏；
+  拿不到 Mica 时自动退回 Win11 实色底 `#202020`（设置页会如实显示"Mica 已启用/未启用"）；
+- **跟随系统深浅色**（读 `AppsUseLightTheme`），设置页可固定深色/浅色，切换即时重绘；
+- **系统强调色**（`AccentColor` → `DwmGetColorizationColor` → 默认蓝）；深色下强调色按钮用黑字（Win11 行为）；
+- **字体换成 Win11 系统字体**：`Segoe UI Variable Text/Display` + `Segoe Fluent Icons`（图标不再手画 GDI+）；
+- **新控件库 `src\Fluent.cs`**：FluentCard（8px 圆角、半透明底 + 1px 描边）、FluentButton（标准/强调/次要/危险）、
+  **FluentToggleSwitch**（Win11 开关）、FluentNavView、FluentScrollPanel（自绘细滚动条）、FluentText、FluentStatusBar；
+- **所有文字改用 GDI+ 绘制**（`Fluent.Text`）：WinForms 的 `Label`/`TextRenderer` 走 GDI，会把文字像素的 alpha
+  写成 0 → 在 Mica 上**文字直接消失**。这是本轮最关键的一处技术决定，`src\Fluent.cs` 顶部有注释说明；
+- 删除 `src\SoftUi.cs`（v1 的自绘控件库），由 `Fluent.cs` 取代。
+
+### 修复（M5 期间发现）
+
+- 自绘控件在 `SetStyle(SupportsTransparentBackColor)` **之前**赋 `BackColor = Color.Transparent` 会抛
+  "控件不支持透明的背景色"（Form 与 UserControl 同理）——已统一为先 SetStyle 再赋色；
+- `Theme` 里的图标字体字段不能叫 `Icon`：会遮蔽 `System.Drawing.Icon`，导致 `Icon.FromHandle` 编译不过（改名 `IconFont`）；
+- 冒烟测试（`--exit-after`）期间不再弹异常对话框：弹窗会挂住进程、阻塞自动化验证（`_quiet`）。
+
+### 已知未完成（诚实记录）
+
+- 「定时关闭应用」页的截图已抓取但**尚未逐帧核对**；「游戏加速」页仍有细节待打磨
+  （左侧列在 720 高度下略挤、状态卡只显示 5 行时磁盘会合并成一行汇总）；
+- 真机未实测项同 1.0.0（真实睡眠/关机/重启、真实点选、真实 Turbo）。
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 每个改动在同一轮内补写，并与代码进同一个 commit。
 

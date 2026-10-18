@@ -351,10 +351,10 @@ namespace Hz
 
         private static string TestTheme()
         {
-            if (Theme.FontUi == null || Theme.FontMono == null) return "字体未初始化";
+            if (Theme.Body == null || Theme.Mono == null) return "字体未初始化";
             using (Icon app = Theme.AppIcon(16)) { if (app == null) return "应用图标创建失败"; }
             using (Icon dot = Theme.DotIcon(Theme.Accent, 16)) { if (dot == null) return "托盘圆点图标创建失败"; }
-            using (Icon badged = Theme.AppIconWithDot(16, Theme.Warn)) { if (badged == null) return "带状态点的托盘图标创建失败"; }
+            using (Icon badged = Theme.AppIconWithDot(16, Theme.Warning)) { if (badged == null) return "带状态点的托盘图标创建失败"; }
             using (var path = Theme.Path(new RectangleF(0, 0, 20, 20), 6))
             {
                 if (path.PointCount < 4) return "圆角路径点数异常";
