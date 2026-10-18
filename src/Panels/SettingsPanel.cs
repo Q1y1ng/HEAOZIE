@@ -42,7 +42,8 @@ namespace Hz.Panels
 
         private void BuildEnvCard()
         {
-            SoftCard card = AddCard("运行环境", "这些路径就是出问题时要看的地方", null, 216);
+            // 高度按「标题留白 58 + 信息 138 + 按钮行 42 + 下留白 16」算，别凭感觉给
+            SoftCard card = AddCard("运行环境", "这些路径就是出问题时要看的地方", null, 258);
             _env = InfoLabel(card, 138);
             FlowLayoutPanel row = AddButtonRow(card, false);
             row.Controls.Add(Btn("刷新信息", 96, false, delegate { RefreshEnv(); }));
@@ -53,7 +54,7 @@ namespace Hz.Panels
 
         private void BuildBehaviorCard()
         {
-            SoftCard card = AddCard("行为", null, null, 130);
+            SoftCard card = AddCard("行为", null, null, 172);
             _behave = InfoLabel(card, 52);
             FlowLayoutPanel row = AddButtonRow(card, false);
             row.Controls.Add(Btn("切换：关闭时最小化到托盘", 190, false, delegate
@@ -75,7 +76,7 @@ namespace Hz.Panels
 
         private void BuildMaintenanceCard()
         {
-            SoftCard card = AddCard("维护", null, null, 130);
+            SoftCard card = AddCard("维护", null, null, 122);
             FlowLayoutPanel row = AddButtonRow(card, false);
             row.Controls.Add(Btn("打开配置目录", 116, false, delegate { OpenFolder(AppConfig.ConfigDir); }));
             row.Controls.Add(Btn("打开日志目录", 116, false, delegate { OpenFolder(AppConfig.LogDir); }));
