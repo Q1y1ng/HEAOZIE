@@ -3,7 +3,24 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 每个改动在同一轮内补写，并与代码进同一个 commit。
 
-## [未发布]
+## [1.0.0] - 2026-10-18
+
+三个 Python/tkinter 小工具 → **一个原生单文件应用**的首次完整发布（M0–M4 全部完成）。
+
+### 新增（M4 收尾）
+
+- **应用图标** `assets\hz.ico`：由 `tools\make-icon.ps1` 生成（16/32/48/256 四档 PNG 压缩 ICO，
+  与 `Theme.AppIcon` 同一套观感），构建时内嵌进 exe → 任务栏 / 快捷方式 / Alt-Tab 都有身份。
+- `tools\install-shortcut.ps1`：一键装桌面 + 开始菜单快捷方式（`-Remove` 卸载）。
+  顺带替掉了原来那条 **指向不存在路径**（`E:\AI\gaming_booster\`）的 `HEAOZIE加速器.lnk`。
+- **Python 原件迁入 `legacy/`**（含原 `.bat` 与一份 `legacy/README.md` 说明为什么不再用、原来有哪些缺陷），
+  同时从 git 跟踪中移除 4 个 `__pycache__/*.pyc` 与那条失效快捷方式。
+- `E:\AI\toolbox` 的三条 HEAOZIE 入口改指 `HZ.exe` 并带 `--tab=` 参数，另加一条「HEAOZIE 系统工具箱」总入口。
+- `E:\AI\tools.md` 新增 §4.8 条目（位置 / 形态 / 参数 / 实测 / 原版缺陷）。
+
+### 变更
+
+- 版本号 `0.4.0 → 1.0.0`：M0 骨架 → M1 定时电源 → M2 定时关闭应用 → M3 游戏加速 → M4 收尾。
 
 ### 新增（M3 游戏加速）
 

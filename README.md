@@ -59,7 +59,7 @@ src\                         C# 源码
   Panels\                    四个功能页
 config\hz.json               运行期生成（不入库）
 logs\                        运行期生成（不入库）
-legacy\                      Python 原件留档（M4 迁入，不再作为入口）
+legacy\                      Python 原件留档（已迁入，不再作为入口；见 legacy\README.md）
 2048\                        纯前端小游戏，保持独立（不并入本应用）
 ```
 
@@ -80,7 +80,17 @@ legacy\                      Python 原件留档（M4 迁入，不再作为入�
 - [x] **M1 定时电源**：睡眠/关机/重启，绝对时间戳倒计时（睡眠唤醒不漂移），执行前 5 秒可取消
 - [x] **M2 定时关闭应用**：进程勾选、点选目标、到点结束进程
 - [x] **M3 游戏加速**：实时状态、Turbo 一键、分类与白名单、日志、提权
-- [ ] **M4 收尾**：图标、快捷方式、toolbox 入口改指 HZ.exe、Python 原件迁入 `legacy/`
+- [x] **M4 收尾**：图标、快捷方式脚本、toolbox 入口改指 HZ.exe、Python 原件迁入 `legacy/`
+
+**当前版本 1.0.0**（M0–M4 完成）。已知尚未在真机上实测的三件事（需人工各点一次，开发流程不擅自触发）：
+真实的睡眠/关机/重启、点选目标时的真实鼠标点选、真实的一键 Turbo。
+
+## 安装快捷方式
+
+```powershell
+pwsh -NoProfile -File tools\install-shortcut.ps1          # 桌面 + 开始菜单
+pwsh -NoProfile -File tools\install-shortcut.ps1 -Remove  # 卸载
+```
 
 ## 许可
 

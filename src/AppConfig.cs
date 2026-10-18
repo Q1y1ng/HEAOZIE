@@ -16,8 +16,8 @@ namespace Hz
     {
         public const string Name = "HEAOZIE";
         public const string DisplayName = "HEAOZIE · 系统工具箱";
-        public const string Version = "0.4.0";
-        public const string BuildTag = "M3 游戏加速";
+        public const string Version = "1.0.0";
+        public const string BuildTag = "M4 收尾";
     }
 
     internal sealed class AppConfig
