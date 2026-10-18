@@ -41,6 +41,7 @@ namespace Hz
         public static readonly Font FontTitle = new Font("Microsoft YaHei UI", 13f, FontStyle.Bold);
         public static readonly Font FontMono = new Font("Consolas", 9.5f);
         public static readonly Font FontMonoBig = new Font("Consolas", 11f, FontStyle.Bold);
+        public static readonly Font FontDigit = new Font("Consolas", 40f, FontStyle.Bold);
 
         public static Color Alpha(Color c, int a)
         {
@@ -111,6 +112,50 @@ namespace Hz
                 float pad = size * 0.14f;
                 using (var b = new SolidBrush(color))
                     g.FillEllipse(b, pad, pad, size - pad * 2f, size - pad * 2f);
+            }
+            return FromBitmap(bmp);
+        }
+
+        /// 应用图标 + 右下角状态点（托盘用：既认得出是 HZ，又能看出状态）。
+        public static Icon AppIconWithDot(int size, Color dot)
+        {
+            if (size < 10) size = 10;
+            var bmp = new Bitmap(size, size);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.Clear(Color.Transparent);
+
+                float pad = size * 0.06f;
+                var box = new RectangleF(pad, pad, size - pad * 2f, size - pad * 2f);
+                float radius = size * 0.24f;
+                using (var path = Path(box, radius))
+                using (var b = new SolidBrush(Surface))
+                    g.FillPath(b, path);
+                using (var path = Path(box, radius))
+                using (var p = new Pen(Accent, Math.Max(1f, size * 0.075f)))
+                    g.DrawPath(p, path);
+
+                float w = size * 0.085f;
+                float left = size * 0.305f;
+                float right = size * 0.61f;
+                float top = size * 0.30f;
+                float bot = size * 0.70f;
+                using (var b = new SolidBrush(Accent))
+                {
+                    g.FillRectangle(b, left, top, w, bot - top);
+                    g.FillRectangle(b, right, top, w, bot - top);
+                    g.FillRectangle(b, left, size * 0.4575f, (right - left) + w, w);
+                }
+
+                // 右下角状态点：白边 + 状态色，小尺寸下也分得清
+                float d = size * 0.46f;
+                var dotBox = new RectangleF(size - d - size * 0.02f, size - d - size * 0.02f, d, d);
+                using (var b = new SolidBrush(Color.FromArgb(230, Bg)))
+                    g.FillEllipse(b, dotBox);
+                var inner = new RectangleF(dotBox.X + d * 0.18f, dotBox.Y + d * 0.18f, d * 0.64f, d * 0.64f);
+                using (var b = new SolidBrush(dot))
+                    g.FillEllipse(b, inner);
             }
             return FromBitmap(bmp);
         }

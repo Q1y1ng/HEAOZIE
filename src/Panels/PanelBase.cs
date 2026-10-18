@@ -17,6 +17,15 @@ namespace Hz.Panels
         void Log(string msg);
         void ShowMain();
         void SelectTab(int index);
+
+        /// 托盘提示文字（定时类页面用它显示剩余时间）。
+        void SetTrayStatus(string text);
+
+        /// 托盘图标状态色（正常/计时中/即将执行）。
+        void SetTrayColor(Color color);
+
+        /// 气泡通知（到点前提醒、动作完成）。
+        void Notify(string title, string text);
     }
 
     internal abstract class PanelBase : UserControl

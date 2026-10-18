@@ -85,7 +85,7 @@ namespace Hz
             try
             {
                 Icon old = _icon.Icon;
-                _icon.Icon = Theme.DotIcon(color, 16);
+                _icon.Icon = Theme.AppIconWithDot(16, color);
                 if (old != null) old.Dispose();
             }
             catch { }

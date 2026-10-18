@@ -35,11 +35,16 @@ namespace Hz
         public bool StartMinimized;
         public int AutoExitSeconds;
 
+        /// --power-demo=N：预填 N 秒并在「定时电源」页起倒计时（冒烟测试，不会真的执行电源操作）。
+        public int DemoPowerSeconds;
+
         public AppConfig Cfg { get { return _cfg; } }
 
-        public MainForm(AppConfig cfg, int initialTab)
+        public MainForm(AppConfig cfg, int initialTab, int demoPowerSeconds)
         {
             _cfg = cfg;
+            // 必须在构造期就拿到：ApplyTab 在构造里跑，晚了就赶不上首屏的演示倒计时
+            DemoPowerSeconds = demoPowerSeconds;
 
             Text = AppInfo.DisplayName;
             Icon = Theme.AppIcon(32);
@@ -175,6 +180,11 @@ namespace Hz
                     _views[index] = panel;
                     _content.Controls.Add(panel);
                     SetStatus("已加载「" + panel.Title + "」");
+                    if (DemoPowerSeconds > 0)
+                    {
+                        var power = panel as PowerPanel;
+                        if (power != null) power.DemoStart(DemoPowerSeconds);
+                    }
                 }
                 for (int i = 0; i < 4; i++)
                 {
@@ -214,6 +224,24 @@ namespace Hz
         public void SelectTab(int index)
         {
             ApplyTab(index, false);
+        }
+
+        public void SetTrayStatus(string text)
+        {
+            if (InvokeRequired) { BeginInvoke(new Action<string>(SetTrayStatus), text); return; }
+            if (_tray != null) _tray.SetTooltip(text);
+        }
+
+        public void SetTrayColor(Color color)
+        {
+            if (InvokeRequired) { BeginInvoke(new Action<Color>(SetTrayColor), color); return; }
+            if (_tray != null) _tray.SetState(color);
+        }
+
+        public void Notify(string title, string text)
+        {
+            if (InvokeRequired) { BeginInvoke(new Action<string, string>(Notify), title, text); return; }
+            if (_tray != null) _tray.Balloon(title, text);
         }
 
         // ── ITrayHost ──────────────────────────────────────────

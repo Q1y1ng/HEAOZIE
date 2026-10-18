@@ -11,6 +11,7 @@ using System.IO;
 using System.Text;
 using System.Windows.Forms;
 using Hz.Panels;
+using Hz.Sys;
 
 namespace Hz
 {
@@ -32,6 +33,8 @@ namespace Hz
             Check("JSON 解析与往返", TestJson);
             Check("JSON 坏输入容错", TestJsonBad);
             Check("配置默认值与部分覆盖", TestConfig);
+            Check("倒计时（含睡眠漂移）", TestCountdown);
+            Check("电源操作映射", TestPowerOps);
             Check("主题与运行时图标", TestTheme);
             Check("单实例消息注册", TestNative);
             Check("进程枚举", TestProcess);
@@ -120,11 +123,68 @@ namespace Hz
             return "";
         }
 
+        private static string TestCountdown()
+        {
+            // 注入假时钟：模拟「睡眠 3 小时」，验证唤醒后立刻到点而不是继续慢慢数
+            DateTime now = new DateTime(2026, 1, 1, 12, 0, 0);
+            var cd = new Countdown(delegate { return now; });
+
+            cd.Start(TimeSpan.FromMinutes(30));
+            if (cd.Deadline != new DateTime(2026, 1, 1, 12, 30, 0)) return "目标时刻计算错误";
+
+            now = now.AddMinutes(10);
+            if (Math.Abs((cd.Remaining - TimeSpan.FromMinutes(20)).TotalSeconds) > 0.5) return "剩余时间计算错误";
+
+            cd.Pause();
+            now = now.AddMinutes(5);
+            if (Math.Abs((cd.Remaining - TimeSpan.FromMinutes(20)).TotalSeconds) > 0.5) return "暂停期间剩余时间不该变化";
+
+            cd.Resume();
+            now = now.AddMinutes(19);
+            if (cd.Poll()) return "未到点却报已到点";
+
+            now = now.AddHours(3);   // ← 睡眠 3 小时
+            if (!cd.Poll()) return "睡眠唤醒后没有立即到点（漂移缺陷没修掉）";
+            if (cd.Poll()) return "到点后应当只触发一次";
+            if (cd.Remaining != TimeSpan.Zero) return "到点后剩余时间应为 0";
+
+            cd.Start(TimeSpan.FromMinutes(1));
+            if (!cd.IsArmed) return "重新开始失败";
+            cd.Reset();
+            if (cd.IsArmed || cd.Remaining != TimeSpan.Zero) return "重置后仍在计时";
+
+            if (Countdown.Format(new TimeSpan(1, 2, 3)) != "01:02:03") return "格式化错误";
+            if (Countdown.Format(new TimeSpan(0, 0, 7)) != "00:00:07") return "补零错误";
+
+            bool threw = false;
+            try { cd.Start(TimeSpan.Zero); }
+            catch (ArgumentOutOfRangeException) { threw = true; }
+            if (!threw) return "0 时长应当被拒绝";
+            return "";
+        }
+
+        private static string TestPowerOps()
+        {
+            if (PowerOps.Parse("sleep", PowerAction.Restart) != PowerAction.Sleep) return "sleep 解析错误";
+            if (PowerOps.Parse("shutdown", PowerAction.Sleep) != PowerAction.Shutdown) return "shutdown 解析错误";
+            if (PowerOps.Parse("restart", PowerAction.Sleep) != PowerAction.Restart) return "restart 解析错误";
+            if (PowerOps.Parse("", PowerAction.Restart) != PowerAction.Restart) return "空值应当回退";
+            if (PowerOps.Parse("胡说", PowerAction.Sleep) != PowerAction.Sleep) return "非法值应当回退";
+
+            if (PowerOps.ToConfig(PowerAction.Sleep) != "sleep") return "ToConfig(sleep) 错误";
+            if (PowerOps.Parse(PowerOps.ToConfig(PowerAction.Shutdown), PowerAction.Sleep) != PowerAction.Shutdown)
+                return "配置往返不一致";
+            if (PowerOps.Label(PowerAction.Restart) != "重启") return "标签错误";
+            if (string.IsNullOrEmpty(PowerOps.Verb(PowerAction.Sleep))) return "动词为空";
+            return "";
+        }
+
         private static string TestTheme()
         {
             if (Theme.FontUi == null || Theme.FontMono == null) return "字体未初始化";
             using (Icon app = Theme.AppIcon(16)) { if (app == null) return "应用图标创建失败"; }
             using (Icon dot = Theme.DotIcon(Theme.Accent, 16)) { if (dot == null) return "托盘圆点图标创建失败"; }
+            using (Icon badged = Theme.AppIconWithDot(16, Theme.Warn)) { if (badged == null) return "带状态点的托盘图标创建失败"; }
             using (var path = Theme.Path(new RectangleF(0, 0, 20, 20), 6))
             {
                 if (path.PointCount < 4) return "圆角路径点数异常";
@@ -195,6 +255,9 @@ namespace Hz
             public void Log(string msg) { }
             public void ShowMain() { }
             public void SelectTab(int index) { }
+            public void SetTrayStatus(string text) { }
+            public void SetTrayColor(Color color) { }
+            public void Notify(string title, string text) { }
         }
     }
 }

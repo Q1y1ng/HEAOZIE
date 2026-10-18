@@ -15,8 +15,8 @@ namespace Hz
     {
         public const string Name = "HEAOZIE";
         public const string DisplayName = "HEAOZIE · 系统工具箱";
-        public const string Version = "0.1.0";
-        public const string BuildTag = "M0 骨架";
+        public const string Version = "0.2.0";
+        public const string BuildTag = "M1 定时电源";
     }
 
     internal sealed class AppConfig
@@ -43,6 +43,15 @@ namespace Hz
         public int LastTab;
         public bool CloseToTray = true;
         public bool TrimOnHide = true;
+
+        // ── 定时电源 ────────────────────────────────────────────
+        public string PowerAction = "sleep";
+        public int CancelWindowSec = 5;
+        public readonly List<int> PowerPresets = new List<int>();
+
+        // ── 定时关闭应用 ────────────────────────────────────────
+        public bool KillerAutoMinimize;
+        public readonly List<int> KillerPresets = new List<int>();
 
         public AppConfig()
         {
@@ -178,6 +187,29 @@ namespace Hz
             LastTab = Json.Int(win, "lastTab", 0);
             CloseToTray = Json.Bool(win, "closeToTray", true);
             TrimOnHide = Json.Bool(win, "trimOnHide", true);
+
+            var power = Json.Obj(Raw, "power");
+            PowerAction = Json.Str(power, "action", "sleep");
+            CancelWindowSec = Math.Max(1, Math.Min(60, Json.Int(power, "cancelWindowSec", 5)));
+            PowerPresets.Clear();
+            foreach (object item in Json.List(power, "presets"))
+            {
+                if (!(item is double)) continue;
+                int secs = (int)Math.Round((double)item);
+                if (secs > 0) PowerPresets.Add(secs);
+            }
+            if (PowerPresets.Count == 0) PowerPresets.AddRange(new[] { 900, 1800, 3600, 7200 });
+
+            var killer = Json.Obj(Raw, "killer");
+            KillerAutoMinimize = Json.Bool(killer, "autoMinimize", false);
+            KillerPresets.Clear();
+            foreach (object item in Json.List(killer, "presets"))
+            {
+                if (!(item is double)) continue;
+                int secs = (int)Math.Round((double)item);
+                if (secs > 0) KillerPresets.Add(secs);
+            }
+            if (KillerPresets.Count == 0) KillerPresets.AddRange(new[] { 300, 900, 1800, 3600 });
         }
 
         private void WriteToRaw()
@@ -191,6 +223,19 @@ namespace Hz
             win["lastTab"] = LastTab;
             win["closeToTray"] = CloseToTray;
             win["trimOnHide"] = TrimOnHide;
+
+            var power = Json.Obj(Raw, "power");
+            power["action"] = PowerAction;
+            power["cancelWindowSec"] = CancelWindowSec;
+            var presets = new List<object>();
+            foreach (int secs in PowerPresets) presets.Add((double)secs);
+            power["presets"] = presets;
+
+            var killer = Json.Obj(Raw, "killer");
+            killer["autoMinimize"] = KillerAutoMinimize;
+            var kpresets = new List<object>();
+            foreach (int secs in KillerPresets) kpresets.Add((double)secs);
+            killer["presets"] = kpresets;
         }
 
         public bool Save()
