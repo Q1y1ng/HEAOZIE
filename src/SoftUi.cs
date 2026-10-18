@@ -474,7 +474,8 @@ namespace Hz
     }
 
     /// 卡片容器：圆角、低对比边框、可选标题/副标题；子控件底色需用 Theme.Card。
-    internal sealed class SoftCard : Panel
+    /// 非 sealed：`TimeSetupCard` 之类的复合卡片要继承它。
+    internal class SoftCard : Panel
     {
         public string Title = "";
         public string Subtitle = "";

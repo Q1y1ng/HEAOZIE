@@ -31,6 +31,51 @@ namespace Hz
         [DllImport("kernel32.dll")]
         private static extern IntPtr GetCurrentProcess();
 
+        [StructLayout(LayoutKind.Sequential)]
+        public struct POINT
+        {
+            public int X;
+            public int Y;
+        }
+
+        [DllImport("user32.dll")]
+        public static extern bool GetCursorPos(out POINT point);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr WindowFromPoint(POINT point);
+
+        [DllImport("user32.dll")]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+
+        [DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
+
+        public const int VK_LBUTTON = 0x01;
+        public const int VK_ESCAPE = 0x1B;
+
+        /// 全局键状态（点选目标时判断「用户在外面点了左键」/「按了 ESC」）。
+        public static bool KeyDown(int vk)
+        {
+            try { return (GetAsyncKeyState(vk) & 0x8000) != 0; }
+            catch { return false; }
+        }
+
+        /// 光标下窗口所属进程（点选目标用；与原 Python 版 WindowFromPoint + GetWindowThreadProcessId 同路）。
+        public static int ProcessIdUnderCursor()
+        {
+            try
+            {
+                POINT pt;
+                if (!GetCursorPos(out pt)) return 0;
+                IntPtr hwnd = WindowFromPoint(pt);
+                if (hwnd == IntPtr.Zero) return 0;
+                uint pid;
+                GetWindowThreadProcessId(hwnd, out pid);
+                return (int)pid;
+            }
+            catch { return 0; }
+        }
+
         public static readonly IntPtr HWND_BROADCAST = new IntPtr(0xFFFF);
 
         /// 唤醒已运行实例的私有消息（值由系统分配，进程间一致）。

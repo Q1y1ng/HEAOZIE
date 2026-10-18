@@ -35,6 +35,8 @@ namespace Hz
             Check("配置默认值与部分覆盖", TestConfig);
             Check("倒计时（含睡眠漂移）", TestCountdown);
             Check("电源操作映射", TestPowerOps);
+            Check("进程枚举与安全名单", TestProcList);
+            Check("进程表与时间卡", TestWidgets);
             Check("主题与运行时图标", TestTheme);
             Check("单实例消息注册", TestNative);
             Check("进程枚举", TestProcess);
@@ -176,6 +178,80 @@ namespace Hz
                 return "配置往返不一致";
             if (PowerOps.Label(PowerAction.Restart) != "重启") return "标签错误";
             if (string.IsNullOrEmpty(PowerOps.Verb(PowerAction.Sleep))) return "动词为空";
+            return "";
+        }
+
+        private static string TestProcList()
+        {
+            List<ProcEntry> rows = ProcList.Enumerate();
+            if (rows.Count < 3) return "枚举到的可关闭进程太少（" + rows.Count + "）";
+            foreach (ProcEntry e in rows)
+            {
+                if (e.Pid <= 0) return "出现非法 PID";
+                if (string.IsNullOrEmpty(e.Name)) return "出现空进程名";
+                if (ProcList.IsProtected(e.Name)) return "安全名单里的进程混进了列表：" + e.Name;
+            }
+            if (!ProcList.IsProtected("explorer")) return "explorer 应当在安全名单里";
+            if (!ProcList.IsProtected("svchost.exe")) return "svchost.exe 应当在安全名单里";
+            if (!ProcList.IsProtected("EXPLORER.EXE")) return "安全名单应当忽略大小写";
+            if (ProcList.IsProtected("notepad.exe")) return "notepad.exe 不该被保护";
+            if (ProcList.DisplayName("chrome") != "chrome.exe") return "显示名补 .exe 失败";
+            if (ProcList.DisplayName("System") != "System") return "System 不该补 .exe";
+            if (ProcList.NameOf(999999) != "") return "不存在的 PID 应当返回空名字";
+
+            string err;
+            if (ProcList.Kill(999999, out err)) return "结束不存在的 PID 竟然成功";
+            if (string.IsNullOrEmpty(err)) return "结束失败没有给出原因";
+
+            int self;
+            using (Process me = Process.GetCurrentProcess()) self = me.Id;
+            if (!ProcList.IsSelf(self)) return "IsSelf 判断失败";
+            return "";
+        }
+
+        private static string TestWidgets()
+        {
+            var table = new ProcTable();
+            var setup = new TimeSetupCard("设定倒计时", "自检", new List<int> { 300, 900 }, 86);
+            try
+            {
+                var rows = new List<ProcEntry>();
+                rows.Add(new ProcEntry { Pid = 111, Name = "aaa.exe", MemoryMb = 10 });
+                rows.Add(new ProcEntry { Pid = 222, Name = "bbb.exe", MemoryMb = 20 });
+                table.SetRows(rows);
+                if (table.RowCount != 2) return "SetRows 后行数不对";
+                if (table.CheckedPids.Count != 0) return "初始不该有勾选";
+                table.CheckAll();
+                if (table.CheckedPids.Count != 2) return "全选失败";
+                if (!table.IsChecked(111)) return "全选后仍报未勾选";
+                table.UncheckAll();
+                if (table.CheckedPids.Count != 0) return "取消全选失败";
+                table.SetChecked(222, true);
+                if (table.CheckedPids.Count != 1 || table.CheckedPids[0] != 222) return "单勾失败";
+                if (!table.HighlightPid(222)) return "高亮已存在的 PID 失败";
+                if (table.HighlightPid(999)) return "高亮不存在的 PID 竟然成功";
+                // 进程退出后过期勾选必须被清掉（否则会拿着旧 PID 去结束）
+                table.SetRows(rows.GetRange(0, 1));
+                if (table.CheckedPids.Count != 0) return "过期勾选没有被清理";
+
+                setup.SetSeconds(900);
+                if (setup.Total != TimeSpan.FromMinutes(15)) return "SetSeconds 换算错误";
+                setup.SetSeconds(3661);
+                if (setup.Total != new TimeSpan(1, 1, 1)) return "SetSeconds 时分秒换算错误";
+                setup.Lock(true);
+                setup.SetSeconds(60);
+                if (setup.Total != new TimeSpan(1, 1, 1)) return "锁定时不该还能改时间";
+                setup.Lock(false);
+                setup.SetSeconds(60);
+                if (setup.Total != TimeSpan.FromMinutes(1)) return "解锁后改不动时间";
+                if (TimeSetupCard.PresetLabel(900) != "15 分钟") return "预设标签错误";
+                if (TimeSetupCard.PresetLabel(7200) != "2 小时") return "预设标签（小时）错误";
+            }
+            finally
+            {
+                table.Dispose();
+                setup.Dispose();
+            }
             return "";
         }
 

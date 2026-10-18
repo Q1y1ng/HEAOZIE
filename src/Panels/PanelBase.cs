@@ -67,21 +67,92 @@ namespace Hz.Panels
             Controls.Add(Body);
         }
 
+        /// 换成左右分栏布局（左列固定宽度，右列吃满剩余）—— 需要「一页装下不滚动」时用。
+        protected TableLayoutPanel BuildSplitLayout(float leftWidth)
+        {
+            Body.Visible = false;   // 隐藏的控件不参与停靠布局，整块客户区让给分栏
+            var split = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Theme.Bg,
+                ColumnCount = 2,
+                RowCount = 1,
+                Padding = new Padding(20, 16, 20, 16)
+            };
+            split.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, leftWidth));
+            split.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            split.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            Controls.Add(split);
+            split.BringToFront();
+            return split;
+        }
+
+        /// 分栏左列：纵向堆叠若干卡片，宽度随列宽伸缩。
+        protected FlowLayoutPanel BuildColumn(params Control[] cards)
+        {
+            var col = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                AutoScroll = false,
+                BackColor = Theme.Bg,
+                Margin = new Padding(0)
+            };
+            foreach (Control card in cards)
+            {
+                card.Margin = new Padding(0, 0, 0, 14);
+                card.Width = Math.Max(240, col.ClientSize.Width);
+                col.Controls.Add(card);
+            }
+            col.ClientSizeChanged += delegate
+            {
+                int w = col.ClientSize.Width - col.Padding.Horizontal;
+                if (w < 240) return;
+                foreach (Control c in col.Controls)
+                {
+                    if (c.Width != w) c.Width = w;
+                }
+            };
+            return col;
+        }
+
+        private SoftCard _stretchCard;
+
+        /// 指定一张卡片吃掉剩余高度（进程表这种「越大越好」的卡片用），避免整页出现滚动条。
+        protected void MarkStretchCard(SoftCard card)
+        {
+            _stretchCard = card;
+            StretchCards();
+        }
+
         private void StretchCards()
         {
             int w = Body.ClientSize.Width - Body.Padding.Horizontal;
-            if (w < 240) return;
+            if (w >= 240)
+            {
+                foreach (Control c in Body.Controls)
+                {
+                    if (c.Width != w) c.Width = w;
+                }
+            }
+            if (_stretchCard == null || !Body.Controls.Contains(_stretchCard)) return;
+
+            int others = 0;
             foreach (Control c in Body.Controls)
             {
-                if (c.Width != w) c.Width = w;
+                if (c == _stretchCard) continue;
+                others += c.Height + c.Margin.Vertical;
             }
+            int available = Body.ClientSize.Height - Body.Padding.Vertical - others - _stretchCard.Margin.Vertical;
+            int height = Math.Max(180, available);
+            if (_stretchCard.Height != height) _stretchCard.Height = height;
         }
 
         /// 加一张卡片；body 会自动换行并随窗口宽度伸缩。
         protected SoftCard AddCard(string title, string subtitle, string body, int height)
         {
-            var card = new SoftCard(title, subtitle) { Height = height, Margin = new Padding(0, 0, 0, 14) };
-            card.Width = Math.Max(240, Body.ClientSize.Width - Body.Padding.Horizontal);
+            var card = new SoftCard(title, subtitle);
             if (!string.IsNullOrEmpty(body))
             {
                 card.Controls.Add(new Label
@@ -94,24 +165,38 @@ namespace Hz.Panels
                     Font = Theme.FontUi
                 });
             }
+            return AddCardControl(card, height);
+        }
+
+        /// 加一张自定义卡片（TimeSetupCard / ProcTable 这类复合控件）。
+        protected T AddCardControl<T>(T card, int height) where T : SoftCard
+        {
+            card.Height = height;
+            card.Margin = new Padding(0, 0, 0, 14);
+            card.Width = Math.Max(240, Body.ClientSize.Width - Body.Padding.Horizontal);
             Body.Controls.Add(card);
             return card;
         }
 
-        /// 卡片底部的按钮行（右对齐用 FlowDirection.RightToLeft）。
-        protected FlowLayoutPanel AddButtonRow(SoftCard card, bool rightAligned)
+        /// 卡片底部的按钮行（rightAligned 用 RightToLeft 排布；wrap 允许折成两行）。
+        protected FlowLayoutPanel AddButtonRow(SoftCard card, bool rightAligned, int height, bool wrap)
         {
             var row = new FlowLayoutPanel
             {
                 Dock = DockStyle.Bottom,
-                Height = 42,
+                Height = height,
                 BackColor = Theme.Card,
                 FlowDirection = rightAligned ? FlowDirection.RightToLeft : FlowDirection.LeftToRight,
-                WrapContents = false,
+                WrapContents = wrap,
                 Padding = new Padding(0, 6, 0, 0)
             };
             card.Controls.Add(row);
             return row;
+        }
+
+        protected FlowLayoutPanel AddButtonRow(SoftCard card, bool rightAligned)
+        {
+            return AddButtonRow(card, rightAligned, 42, false);
         }
 
         protected SoftButton Btn(string text, int width, bool primary, EventHandler onClick)

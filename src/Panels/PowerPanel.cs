@@ -4,6 +4,8 @@
 //   · 保留：大号倒计时、时/分/秒微调、预设、睡眠/关机/重启三选一、开始/暂停/重置、到点可取消
 //   · 改进：倒计时改为绝对目标时刻（睡眠唤醒不漂移）；托盘常驻并显示剩余时间；
 //           执行前 N 秒有独立撤销窗口与气泡提醒；每次状态变化都写日志。
+//
+// 时间输入那一块与「定时关闭应用」共用 TimeSetupCard，避免两份实现漂移。
 
 using System;
 using System.Drawing;
@@ -17,13 +19,11 @@ namespace Hz.Panels
         private readonly Countdown _count = new Countdown();
         private readonly Countdown _grace = new Countdown();
         private readonly Timer _tick = new Timer { Interval = 250 };
-        private readonly int[] _spin = new int[3];
-        private readonly Label[] _spinText = new Label[3];
 
+        private TimeSetupCard _setup;
         private SegmentedTabs _actionTabs;
         private Label _digit;
         private Label _status;
-        private Label _hint;
         private Label _actionHint;
         private SoftButton _btnStart;
         private SoftButton _btnPause;
@@ -38,76 +38,36 @@ namespace Hz.Panels
 
         public override string Title { get { return "定时电源"; } }
 
-        /// 冒烟测试入口：预填 seconds 并立刻开始倒计时。
-        internal void DemoStart(int seconds)
-        {
-            DemoMode = true;
-            SetFromSeconds(seconds);
-            StartCountdown();
-            Host.Log("演示模式：倒计时 " + seconds + " 秒，到点后只记录不执行");
-        }
-
         public PowerPanel(IHzHost host) : base(host)
         {
             _action = PowerOps.Parse(host.Cfg.PowerAction, PowerAction.Sleep);
-            _spin[0] = 0;
-            _spin[1] = 30;
-            _spin[2] = 0;
 
-            BuildSetCard();
+            _setup = AddCardControl(new TimeSetupCard("设定倒计时", "到达目标时刻后执行下面的操作", host.Cfg.PowerPresets, 86), 190);
+            _setup.SetSeconds(1800);
+            _setup.Changed += delegate { UpdateHint(); };
+
             BuildActionCard();
             BuildCountdownCard();
 
             _tick.Tick += OnTick;
-            RefreshSpins();
             UpdateActionHint();
             ResetUi("等待启动");
         }
 
-        // ── 界面 ────────────────────────────────────────────────
-
-        private void BuildSetCard()
+        /// 冒烟测试入口：预填 seconds 并立刻开始倒计时。
+        internal void DemoStart(int seconds)
         {
-            SoftCard card = AddCard("设定倒计时", "到达目标时刻后执行下面的操作", null, 190);
-
-            var row = new FlowLayoutPanel
-            {
-                Location = new Point(16, 64),
-                Size = new Size(700, 36),
-                BackColor = Theme.Card,
-                WrapContents = false,
-                FlowDirection = FlowDirection.LeftToRight
-            };
-            AddSpin(row, 0, 23, "时");
-            AddSpin(row, 1, 59, "分");
-            AddSpin(row, 2, 59, "秒");
-            card.Controls.Add(row);
-
-            var presets = new FlowLayoutPanel
-            {
-                Location = new Point(16, 110),
-                Size = new Size(760, 34),
-                BackColor = Theme.Card,
-                WrapContents = false,
-                FlowDirection = FlowDirection.LeftToRight
-            };
-            foreach (int secs in Host.Cfg.PowerPresets)
-            {
-                int captured = secs;
-                var b = new SoftButton(PresetLabel(captured), 86, 30) { Tone = Theme.TextDim };
-                b.Click += delegate { SetFromSeconds(captured); };
-                presets.Controls.Add(b);
-            }
-            card.Controls.Add(presets);
-
-            _hint = Soft.Label("目标时刻：--:--:--", Theme.TextFaint, Theme.FontSmall, true);
-            _hint.Location = new Point(16, 156);
-            card.Controls.Add(_hint);
+            DemoMode = true;
+            _setup.SetSeconds(seconds);
+            StartCountdown();
+            Host.Log("演示模式：倒计时 " + seconds + " 秒，到点后只记录不执行");
         }
+
+        // ── 界面 ────────────────────────────────────────────────
 
         private void BuildActionCard()
         {
-            SoftCard card = AddCard("到达时间后执行", null, null, 128);
+            SoftCard card = AddCardControl(new SoftCard("到达时间后执行", null), 128);
 
             _actionTabs = new SegmentedTabs
             {
@@ -126,7 +86,7 @@ namespace Hz.Panels
 
         private void BuildCountdownCard()
         {
-            SoftCard card = AddCard("倒计时", null, null, 240);
+            SoftCard card = AddCardControl(new SoftCard("倒计时", null), 240);
 
             _digit = new Label
             {
@@ -172,95 +132,16 @@ namespace Hz.Panels
             card.Controls.Add(row);
         }
 
-        private void AddSpin(FlowLayoutPanel row, int index, int max, string unit)
-        {
-            var minus = new SoftButton("", 30, 30) { Icon = GI.Minus, Tone = Theme.TextDim };
-            minus.Click += delegate { Bump(index, -1, max); };
-
-            var value = new Label
-            {
-                Width = 56,
-                Height = 30,
-                Text = "00",
-                TextAlign = ContentAlignment.MiddleCenter,
-                Font = Theme.FontMonoBig,
-                ForeColor = Theme.Text,
-                BackColor = Theme.Card
-            };
-            _spinText[index] = value;
-
-            var plus = new SoftButton("", 30, 30) { Icon = GI.Plus, Tone = Theme.TextDim };
-            plus.Click += delegate { Bump(index, 1, max); };
-
-            var unitLabel = new Label
-            {
-                Width = 30,
-                Height = 30,
-                Text = unit,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Font = Theme.FontSmall,
-                ForeColor = Theme.TextDim,
-                BackColor = Theme.Card,
-                Margin = new Padding(4, 0, 14, 0)
-            };
-
-            row.Controls.Add(minus);
-            row.Controls.Add(value);
-            row.Controls.Add(plus);
-            row.Controls.Add(unitLabel);
-        }
-
-        private static string PresetLabel(int seconds)
-        {
-            if (seconds % 3600 == 0) return (seconds / 3600) + " 小时";
-            if (seconds % 60 == 0) return (seconds / 60) + " 分钟";
-            return seconds + " 秒";
-        }
-
-        // ── 输入 ────────────────────────────────────────────────
-
-        private void Bump(int index, int delta, int max)
-        {
-            if (_count.IsArmed || _inGrace) { Host.SetStatus("倒计时运行中，先重置再改时间"); return; }
-            _spin[index] = (_spin[index] + delta + max + 1) % (max + 1);
-            RefreshSpins();
-        }
-
-        private void SetFromSeconds(int seconds)
-        {
-            if (_count.IsArmed || _inGrace) { Host.SetStatus("倒计时运行中，先重置再改时间"); return; }
-            _spin[0] = seconds / 3600;
-            _spin[1] = (seconds % 3600) / 60;
-            _spin[2] = seconds % 60;
-            RefreshSpins();
-        }
-
-        private TimeSpan Total()
-        {
-            return new TimeSpan(_spin[0], _spin[1], _spin[2]);
-        }
-
-        private void RefreshSpins()
-        {
-            for (int i = 0; i < 3; i++)
-            {
-                if (_spinText[i] != null) _spinText[i].Text = _spin[i].ToString("00");
-            }
-            UpdateHint();
-        }
-
         private void UpdateHint()
         {
-            if (_hint == null) return;
+            if (_setup == null) return;
             if (_count.IsArmed)
             {
-                _hint.Text = "目标时刻：" + _count.Deadline.ToString("yyyy-MM-dd HH:mm:ss") +
-                             (_count.IsPaused ? "（已暂停，剩余 " + Countdown.Format(_count.Remaining) + "）" : "");
+                _setup.SetHintOverride("目标时刻：" + _count.Deadline.ToString("yyyy-MM-dd HH:mm:ss") +
+                                       (_count.IsPaused ? "（已暂停，剩余 " + Countdown.Format(_count.Remaining) + "）" : ""));
                 return;
             }
-            TimeSpan total = Total();
-            if (total <= TimeSpan.Zero) { _hint.Text = "目标时刻：--:--:--"; return; }
-            _hint.Text = "目标时刻：" + DateTime.Now.Add(total).ToString("yyyy-MM-dd HH:mm:ss") + "（当前 " + DateTime.Now.ToString("HH:mm:ss") + "）";
+            _setup.SetHintOverride(null);
         }
 
         private void UpdateActionHint()
@@ -298,7 +179,7 @@ namespace Hz.Panels
                 Host.SetStatus("已继续倒计时");
                 return;
             }
-            TimeSpan total = Total();
+            TimeSpan total = _setup.Total;
             if (total <= TimeSpan.Zero)
             {
                 Host.SetStatus("请先设定时间（时 / 分 / 秒）");
@@ -306,6 +187,7 @@ namespace Hz.Panels
             }
             _count.Start(total);
             _tick.Start();
+            _setup.Lock(true);
             Host.Log("定时电源开始：" + PowerOps.Label(_action) + "，倒计时 " + Countdown.Format(total) +
                      "，目标 " + _count.Deadline.ToString("yyyy-MM-dd HH:mm:ss"));
             _btnStart.Enabled = false;
@@ -403,7 +285,6 @@ namespace Hz.Panels
             Host.Log("定时到点，进入 " + window + " 秒撤销窗口：" + PowerOps.Label(_action));
             Host.Notify(AppInfo.Name, PowerOps.Label(_action) + " 将在 " + window + " 秒后执行，可点「立即取消」撤销");
             Host.SetStatus("⚠ " + window + " 秒后" + PowerOps.Verb(_action) + "，可取消");
-            if (Visible) Host.ShowMain();
         }
 
         private void CancelGrace()
@@ -415,7 +296,7 @@ namespace Hz.Panels
             Host.Log("用户在撤销窗口内取消了定时" + PowerOps.Label(_action));
             Host.SetStatus("已取消本次" + PowerOps.Label(_action));
             Host.SetTrayColor(Theme.Ok);
-            ResetUi("已取消（" + Countdown.Format(TimeSpan.FromSeconds(Math.Max(1, Host.Cfg.CancelWindowSec))) + " 撤销窗口内）");
+            ResetUi("已取消（撤销窗口内）");
         }
 
         private void ExecuteNow()
@@ -469,12 +350,13 @@ namespace Hz.Panels
                 _btnPause.Text = "暂停";
             }
             if (_btnReset != null) _btnReset.Enabled = false;
+            if (_setup != null) _setup.Lock(false);
             if (_status != null)
             {
                 _status.Text = reason;
                 _status.ForeColor = Theme.TextDim;
             }
-            RefreshSpins();
+            UpdateHint();
             Host.SetTrayColor(Theme.Ok);
             Host.SetTrayStatus(AppInfo.DisplayName);
         }

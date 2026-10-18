@@ -15,8 +15,8 @@ namespace Hz
     {
         public const string Name = "HEAOZIE";
         public const string DisplayName = "HEAOZIE · 系统工具箱";
-        public const string Version = "0.2.0";
-        public const string BuildTag = "M1 定时电源";
+        public const string Version = "0.3.0";
+        public const string BuildTag = "M2 定时关闭应用";
     }
 
     internal sealed class AppConfig
@@ -52,6 +52,7 @@ namespace Hz
         // ── 定时关闭应用 ────────────────────────────────────────
         public bool KillerAutoMinimize;
         public readonly List<int> KillerPresets = new List<int>();
+        public readonly List<string> KillerTargets = new List<string>();
 
         public AppConfig()
         {
@@ -210,6 +211,8 @@ namespace Hz
                 if (secs > 0) KillerPresets.Add(secs);
             }
             if (KillerPresets.Count == 0) KillerPresets.AddRange(new[] { 300, 900, 1800, 3600 });
+            KillerTargets.Clear();
+            KillerTargets.AddRange(Json.StrList(killer, "lastTargets"));
         }
 
         private void WriteToRaw()
@@ -236,6 +239,9 @@ namespace Hz
             var kpresets = new List<object>();
             foreach (int secs in KillerPresets) kpresets.Add((double)secs);
             killer["presets"] = kpresets;
+            var targets = new List<object>();
+            foreach (string name in KillerTargets) targets.Add(name);
+            killer["lastTargets"] = targets;
         }
 
         public bool Save()

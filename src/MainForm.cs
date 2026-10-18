@@ -38,13 +38,17 @@ namespace Hz
         /// --power-demo=N：预填 N 秒并在「定时电源」页起倒计时（冒烟测试，不会真的执行电源操作）。
         public int DemoPowerSeconds;
 
+        /// --killer-demo=N：预填 N 秒并在「定时关闭应用」页起倒计时（冒烟测试，不会真的结束进程）。
+        public int DemoKillerSeconds;
+
         public AppConfig Cfg { get { return _cfg; } }
 
-        public MainForm(AppConfig cfg, int initialTab, int demoPowerSeconds)
+        public MainForm(AppConfig cfg, int initialTab, int demoPowerSeconds, int demoKillerSeconds)
         {
             _cfg = cfg;
             // 必须在构造期就拿到：ApplyTab 在构造里跑，晚了就赶不上首屏的演示倒计时
             DemoPowerSeconds = demoPowerSeconds;
+            DemoKillerSeconds = demoKillerSeconds;
 
             Text = AppInfo.DisplayName;
             Icon = Theme.AppIcon(32);
@@ -52,7 +56,7 @@ namespace Hz
             ForeColor = Theme.Text;
             Font = Theme.FontUi;
             MinimumSize = new Size(940, 660);
-            ClientSize = new Size(_cfg.WinW, _cfg.WinH);
+            ClientSize = ClampToScreen(new Size(_cfg.WinW, _cfg.WinH));
             StartPosition = FormStartPosition.Manual;
             DoubleBuffered = true;
             KeyPreview = true;
@@ -131,6 +135,15 @@ namespace Hz
             }
         }
 
+        private static Size ClampToScreen(Size wanted)
+        {
+            // 配置里可能存着换显示器前的大尺寸：钳到当前虚拟桌面内，别让窗口开到屏幕外
+            Rectangle vs = SystemInformation.VirtualScreen;
+            int w = Math.Max(940, Math.Min(wanted.Width, vs.Width - 60));
+            int h = Math.Max(660, Math.Min(wanted.Height, vs.Height - 60));
+            return new Size(w, h);
+        }
+
         private void RestorePlacement()
         {
             Rectangle vs = SystemInformation.VirtualScreen;
@@ -184,6 +197,11 @@ namespace Hz
                     {
                         var power = panel as PowerPanel;
                         if (power != null) power.DemoStart(DemoPowerSeconds);
+                    }
+                    if (DemoKillerSeconds > 0)
+                    {
+                        var killer = panel as KillerPanel;
+                        if (killer != null) killer.DemoStart(DemoKillerSeconds);
                     }
                 }
                 for (int i = 0; i < 4; i++)
@@ -356,8 +374,10 @@ namespace Hz
         {
             if (WindowState == FormWindowState.Normal)
             {
-                _cfg.WinW = Width;
-                _cfg.WinH = Height;
+                // 存 ClientSize（客户区），恢复时也赋给 ClientSize —— 混用 Width/Height
+                // 会把边框与标题栏重复计入，窗口每启动一次就长大一圈（实测踩过）。
+                _cfg.WinW = ClientSize.Width;
+                _cfg.WinH = ClientSize.Height;
                 _cfg.WinX = Location.X;
                 _cfg.WinY = Location.Y;
             }

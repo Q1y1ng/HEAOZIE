@@ -20,6 +20,7 @@ namespace Hz
             public bool StartMinimized;
             public int ExitAfterSeconds;
             public int DemoPowerSeconds;
+            public int DemoKillerSeconds;
             public bool Help;
         }
 
@@ -30,7 +31,8 @@ namespace Hz
             "  HZ.exe --minimized      启动后直接进托盘\r\n" +
             "  HZ.exe --selftest       无界面自检，结果写入 logs\\selftest.txt，退出码 0/1\r\n" +
             "  HZ.exe --exit-after=5   启动 5 秒后自动退出（冒烟测试用）\r\n" +
-            "  HZ.exe --power-demo=5   演示定时电源全流程（5 秒倒计时 + 撤销窗口），不真的执行\r\n";
+            "  HZ.exe --power-demo=5   演示定时电源全流程（5 秒倒计时 + 撤销窗口），不真的执行\r\n" +
+            "  HZ.exe --killer-demo=5  演示定时关闭应用全流程（不真的结束任何进程）\r\n";
 
         [STAThread]
         private static int Main(string[] args)
@@ -67,7 +69,7 @@ namespace Hz
                 AppConfig cfg = AppConfig.Load();
                 if (!string.IsNullOrEmpty(cfg.LoadError)) Log.Warn(cfg.LoadError);
 
-                var form = new MainForm(cfg, opt.Tab, opt.DemoPowerSeconds)
+                var form = new MainForm(cfg, opt.Tab, opt.DemoPowerSeconds, opt.DemoKillerSeconds)
                 {
                     StartMinimized = opt.StartMinimized,
                     AutoExitSeconds = opt.ExitAfterSeconds
@@ -152,6 +154,13 @@ namespace Hz
                 {
                     int n;
                     if (int.TryParse(lower.Substring(13).Trim(), out n) && n > 0) { o.DemoPowerSeconds = n; o.Tab = 1; }
+                    continue;
+                }
+
+                if (lower.StartsWith("--killer-demo="))
+                {
+                    int n;
+                    if (int.TryParse(lower.Substring(14).Trim(), out n) && n > 0) { o.DemoKillerSeconds = n; o.Tab = 2; }
                     continue;
                 }
             }
