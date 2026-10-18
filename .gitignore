@@ -1,0 +1,16 @@
+# 构建产物
+HZ.exe
+HZ.new.exe
+*.pdb
+
+# 运行期数据（每台机器各自生成，不入库）
+config/
+logs/
+
+# Python 留档目录的字节码（legacy/ 只留源码）
+__pycache__/
+*.pyc
+
+# 临时产物
+.scratch/
+_tmp/

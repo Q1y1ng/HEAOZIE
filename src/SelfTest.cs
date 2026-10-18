@@ -1,0 +1,200 @@
+// 自检：不开界面也能验证核心逻辑（JSON / 配置 / 主题 / 路径 / 面板构建）。
+//
+// 为什么必须有它：GUI 程序很难在自动化里"看一眼"，但把每个里程碑的判定逻辑
+// 收进自检后，改动的对错就有了可重复的判据，而不是靠人点一遍。
+
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Drawing;
+using System.IO;
+using System.Text;
+using System.Windows.Forms;
+using Hz.Panels;
+
+namespace Hz
+{
+    internal static class SelfTest
+    {
+        private static int _fail;
+        private static readonly StringBuilder Report = new StringBuilder();
+
+        public static int Run()
+        {
+            _fail = 0;
+            Report.Clear();
+            Report.AppendLine(AppInfo.DisplayName + " 自检   v" + AppInfo.Version + "   " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+            Report.AppendLine("程序目录：" + AppConfig.RootDir);
+            Report.AppendLine("运行时：  " + SysEnv.FrameworkVersion() + " / " + (Environment.Is64BitProcess ? "x64" : "x86"));
+            Report.AppendLine("权限：    " + (SysEnv.IsAdmin() ? "管理员" : "普通用户"));
+            Report.AppendLine(new string('-', 64));
+
+            Check("JSON 解析与往返", TestJson);
+            Check("JSON 坏输入容错", TestJsonBad);
+            Check("配置默认值与部分覆盖", TestConfig);
+            Check("主题与运行时图标", TestTheme);
+            Check("单实例消息注册", TestNative);
+            Check("进程枚举", TestProcess);
+            Check("目录与日志可写", TestPaths);
+            Check("四个面板可构建", TestPanels);
+
+            Report.AppendLine(new string('-', 64));
+            Report.AppendLine(_fail == 0 ? "结果：全部通过" : "结果：失败 " + _fail + " 项");
+
+            string text = Report.ToString();
+            try
+            {
+                if (!Directory.Exists(AppConfig.LogDir)) Directory.CreateDirectory(AppConfig.LogDir);
+                File.WriteAllText(Path.Combine(AppConfig.LogDir, "selftest.txt"), text, new UTF8Encoding(false));
+            }
+            catch { }
+            Console.WriteLine(text);
+            return _fail == 0 ? 0 : 1;
+        }
+
+        private static void Check(string name, Func<string> test)
+        {
+            string err = "";
+            try { err = test() ?? ""; }
+            catch (Exception ex) { err = ex.GetType().Name + ": " + ex.Message; }
+            if (string.IsNullOrEmpty(err)) Report.AppendLine("[ OK ] " + name);
+            else { _fail++; Report.AppendLine("[FAIL] " + name + " -> " + err); }
+        }
+
+        // ── 各项检查 ────────────────────────────────────────────
+
+        private static string TestJson()
+        {
+            var map = new Dictionary<string, object>(StringComparer.Ordinal);
+            map["num"] = 42.0;
+            map["text"] = "含\"引号\"与\n换行\\反斜杠";
+            map["flag"] = true;
+            map["nothing"] = null;
+            var list = new List<object>();
+            list.Add("x");
+            list.Add(3.5);
+            map["arr"] = list;
+
+            string text = Json.Write(map, true);
+            object back = Json.Parse(text);
+            var bm = Json.AsObj(back);
+            if (Json.Int(bm, "num", 0) != 42) return "数字往返失败";
+            if (Json.Str(bm, "text", "") != "含\"引号\"与\n换行\\反斜杠") return "字符串转义往返失败";
+            if (!Json.Bool(bm, "flag", false)) return "布尔往返失败";
+            if (bm["nothing"] != null) return "null 往返失败";
+            List<object> arr = Json.List(bm, "arr");
+            if (arr.Count != 2) return "数组长度往返失败（" + arr.Count + "）";
+            if (Math.Abs(Json.Num(bm, "num", 0) - 42) > 0.0001) return "浮点往返失败";
+            if (Json.Write(map, false).Contains("\n")) return "紧凑模式不该有换行";
+            return "";
+        }
+
+        private static string TestJsonBad()
+        {
+            object v;
+            string err;
+            if (Json.TryParse("{oops", out v, out err)) return "坏 JSON 竟然解析成功";
+            if (string.IsNullOrEmpty(err)) return "坏 JSON 没有给出错误原因";
+            if (!Json.TryParse("{\"a\":[1,2,{\"b\":\"c\"}]}", out v, out err)) return "合法 JSON 被判为坏";
+            if (Json.AsObj(v)["a"] == null) return "嵌套数组丢失";
+            return "";
+        }
+
+        private static string TestConfig()
+        {
+            var fresh = new AppConfig();
+            if (fresh.WinW != 1020 || fresh.WinH != 720) return "默认窗口尺寸不对";
+            if (!fresh.CloseToTray) return "默认应当「关窗进托盘」";
+            if (Json.Obj(fresh.Raw, "booster").Count == 0) return "默认配置缺少 booster 段";
+
+            // 部分覆盖：只给 window.w，其余必须保留默认值
+            AppConfig partial = AppConfig.FromText("{\"window\":{\"w\":1111}}");
+            if (partial.WinW != 1111) return "部分覆盖未生效（w=" + partial.WinW + "）";
+            if (partial.WinH != 720) return "部分覆盖把未提及的键清掉了";
+            if (Json.Obj(partial.Raw, "killer").Count == 0) return "部分覆盖把别的段清掉了";
+
+            // 坏输入：必须退回默认值且留下错误信息，而不是抛异常
+            AppConfig bad = AppConfig.FromText("{ 这不是 JSON");
+            if (string.IsNullOrEmpty(bad.LoadError)) return "坏配置没有记录错误";
+            if (bad.WinW != 1020) return "坏配置没有退回默认值";
+            return "";
+        }
+
+        private static string TestTheme()
+        {
+            if (Theme.FontUi == null || Theme.FontMono == null) return "字体未初始化";
+            using (Icon app = Theme.AppIcon(16)) { if (app == null) return "应用图标创建失败"; }
+            using (Icon dot = Theme.DotIcon(Theme.Accent, 16)) { if (dot == null) return "托盘圆点图标创建失败"; }
+            using (var path = Theme.Path(new RectangleF(0, 0, 20, 20), 6))
+            {
+                if (path.PointCount < 4) return "圆角路径点数异常";
+            }
+            if (Theme.Alpha(Color.Black, 128).A != 128) return "透明度助手不对";
+            return "";
+        }
+
+        private static string TestNative()
+        {
+            if (Native.WM_HZ_ACTIVATE == 0) return "单实例唤醒消息注册失败";
+            return "";
+        }
+
+        private static string TestProcess()
+        {
+            Process[] all = Process.GetProcesses();
+            if (all.Length < 5) return "枚举到的进程数异常（" + all.Length + "）";
+            foreach (Process p in all) p.Dispose();
+            return "";
+        }
+
+        private static string TestPaths()
+        {
+            if (!Directory.Exists(AppConfig.RootDir)) return "程序目录不存在";
+            if (!Directory.Exists(AppConfig.LogDir)) Directory.CreateDirectory(AppConfig.LogDir);
+            string probe = Path.Combine(AppConfig.LogDir, "selftest-probe.tmp");
+            File.WriteAllText(probe, "probe", new UTF8Encoding(false));
+            string back = File.ReadAllText(probe, Encoding.UTF8);
+            File.Delete(probe);
+            if (back != "probe") return "写入后读回不一致";
+            Log.Info("自检运行");
+            if (!File.Exists(AppConfig.LogPath)) return "日志文件没有生成";
+            return "";
+        }
+
+        private static string TestPanels()
+        {
+            var host = new StubHost();
+            PanelBase[] panels =
+            {
+                new BoosterPanel(host),
+                new PowerPanel(host),
+                new KillerPanel(host),
+                new SettingsPanel(host)
+            };
+            try
+            {
+                foreach (PanelBase p in panels)
+                {
+                    if (string.IsNullOrEmpty(p.Title)) return "有面板没有标题";
+                    if (p.Controls.Count == 0) return "面板「" + p.Title + "」没有任何控件";
+                }
+                if (panels[0].Title == panels[3].Title) return "面板标题重复";
+            }
+            finally
+            {
+                foreach (PanelBase p in panels) p.Dispose();
+            }
+            return "";
+        }
+
+        private sealed class StubHost : IHzHost
+        {
+            private readonly AppConfig _cfg = new AppConfig();
+            public AppConfig Cfg { get { return _cfg; } }
+            public void SetStatus(string text) { }
+            public void Log(string msg) { }
+            public void ShowMain() { }
+            public void SelectTab(int index) { }
+        }
+    }
+}
