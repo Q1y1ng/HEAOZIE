@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using Hz.Sys;
 
 namespace Hz
 {
@@ -15,8 +16,8 @@ namespace Hz
     {
         public const string Name = "HEAOZIE";
         public const string DisplayName = "HEAOZIE · 系统工具箱";
-        public const string Version = "0.3.0";
-        public const string BuildTag = "M2 定时关闭应用";
+        public const string Version = "0.4.0";
+        public const string BuildTag = "M3 游戏加速";
     }
 
     internal sealed class AppConfig
@@ -48,6 +49,19 @@ namespace Hz
         public string PowerAction = "sleep";
         public int CancelWindowSec = 5;
         public readonly List<int> PowerPresets = new List<int>();
+
+        // ── 游戏加速 ────────────────────────────────────────────
+        public readonly BoosterCategories BoosterCats = new BoosterCategories();
+        public readonly List<string> BoosterWhitelist = new List<string>();
+        public bool BoosterKill = true;
+        public bool BoosterTrim = true;
+        public bool BoosterCleanTemp = true;
+        public bool BoosterHighPerf = true;
+        public bool BoosterFlushDns;
+        public bool BoosterStrongTrim;
+        public bool BoosterCleanPrefetch;
+        public string BoosterPreviousPowerPlan = "";
+        public string BoosterLastRun = "";
 
         // ── 定时关闭应用 ────────────────────────────────────────
         public bool KillerAutoMinimize;
@@ -93,9 +107,15 @@ namespace Hz
             cats["game"] = false;
             booster["categories"] = cats;
             booster["whitelist"] = new List<object>();
+            booster["killProcesses"] = true;
+            booster["trimMemory"] = true;
             booster["cleanTemp"] = true;
-            booster["highPerformancePower"] = true;
+            booster["highPerformance"] = true;
             booster["flushDns"] = false;
+            booster["strongTrim"] = false;
+            booster["cleanPrefetch"] = false;
+            booster["previousPowerPlan"] = "";
+            booster["lastRun"] = "";
 
             var root = new Dictionary<string, object>(StringComparer.Ordinal);
             root["window"] = win;
@@ -213,6 +233,24 @@ namespace Hz
             if (KillerPresets.Count == 0) KillerPresets.AddRange(new[] { 300, 900, 1800, 3600 });
             KillerTargets.Clear();
             KillerTargets.AddRange(Json.StrList(killer, "lastTargets"));
+
+            var booster = Json.Obj(Raw, "booster");
+            var cats = Json.Obj(booster, "categories");
+            foreach (string key in BoosterOps.CategoryOrder)
+            {
+                BoosterCats.Set(key, Json.Bool(cats, key, BoosterCats.Get(key)));
+            }
+            BoosterWhitelist.Clear();
+            BoosterWhitelist.AddRange(Json.StrList(booster, "whitelist"));
+            BoosterKill = Json.Bool(booster, "killProcesses", true);
+            BoosterTrim = Json.Bool(booster, "trimMemory", true);
+            BoosterCleanTemp = Json.Bool(booster, "cleanTemp", true);
+            BoosterHighPerf = Json.Bool(booster, "highPerformance", true);
+            BoosterFlushDns = Json.Bool(booster, "flushDns", false);
+            BoosterStrongTrim = Json.Bool(booster, "strongTrim", false);
+            BoosterCleanPrefetch = Json.Bool(booster, "cleanPrefetch", false);
+            BoosterPreviousPowerPlan = Json.Str(booster, "previousPowerPlan", "");
+            BoosterLastRun = Json.Str(booster, "lastRun", "");
         }
 
         private void WriteToRaw()
@@ -242,6 +280,22 @@ namespace Hz
             var targets = new List<object>();
             foreach (string name in KillerTargets) targets.Add(name);
             killer["lastTargets"] = targets;
+
+            var booster = Json.Obj(Raw, "booster");
+            var cats = Json.Obj(booster, "categories");
+            foreach (string key in BoosterOps.CategoryOrder) cats[key] = BoosterCats.Get(key);
+            var white = new List<object>();
+            foreach (string name in BoosterWhitelist) white.Add(name);
+            booster["whitelist"] = white;
+            booster["killProcesses"] = BoosterKill;
+            booster["trimMemory"] = BoosterTrim;
+            booster["cleanTemp"] = BoosterCleanTemp;
+            booster["highPerformance"] = BoosterHighPerf;
+            booster["flushDns"] = BoosterFlushDns;
+            booster["strongTrim"] = BoosterStrongTrim;
+            booster["cleanPrefetch"] = BoosterCleanPrefetch;
+            booster["previousPowerPlan"] = BoosterPreviousPowerPlan;
+            booster["lastRun"] = BoosterLastRun;
         }
 
         public bool Save()

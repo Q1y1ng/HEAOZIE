@@ -37,6 +37,9 @@ namespace Hz
             Check("电源操作映射", TestPowerOps);
             Check("进程枚举与安全名单", TestProcList);
             Check("进程表与时间卡", TestWidgets);
+            Check("加速器名单与编排", TestBooster);
+            Check("清理白名单与安全闸门", TestCleanup);
+            Check("系统状态采集", TestSystemInfo);
             Check("主题与运行时图标", TestTheme);
             Check("单实例消息注册", TestNative);
             Check("进程枚举", TestProcess);
@@ -252,6 +255,97 @@ namespace Hz
                 table.Dispose();
                 setup.Dispose();
             }
+            return "";
+        }
+
+        private static string TestBooster()
+        {
+            foreach (string key in BoosterOps.CategoryOrder)
+            {
+                string label;
+                if (!BoosterOps.CategoryLabels.TryGetValue(key, out label) || string.IsNullOrEmpty(label))
+                    return "分类 " + key + " 缺少中文标签";
+                if (BoosterOps.ProcessesOf(key).Length == 0) return "分类 " + key + " 没有进程名单";
+            }
+            if (BoosterOps.CategoryOrder.Length != 8) return "分类数量不是 8";
+
+            var cats = new BoosterCategories();
+            if (cats.Browsers != true) return "浏览器分类默认应当勾选";
+            if (cats.Game) return "游戏启动器分类默认应当关闭（误杀风险）";
+            cats.Set("dev", true);
+            if (!cats.Get("dev")) return "分类 Set/Get 不一致";
+            string desc = BoosterOps.DescribeCategories(cats);
+            if (desc.IndexOf("开发", StringComparison.Ordinal) < 0) return "分类描述缺少已勾选分类";
+
+            // 电源计划读取：本机必然有 powercfg，取不到也应安全返回空串而不是抛异常
+            string name;
+            string guid = BoosterOps.ActivePowerPlan(out name);
+            if (!string.IsNullOrEmpty(guid) && guid.Length < 32) return "电源计划 GUID 解析异常：" + guid;
+
+            // 白名单排除逻辑：把浏览器全加白名单后，不应该再有浏览器在目标集合里
+            var whitelist = new List<string>();
+            var whiteSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string n in BoosterOps.ProcessesOf("browsers"))
+            {
+                whitelist.Add(n + ".exe");
+                whiteSet.Add(n);
+            }
+            KillOutcome outcome = BoosterOps.KillBackground(cats, whitelist, null, true);   // dryRun：只预演，绝不真结束进程
+            foreach (string killed in outcome.KilledNames)
+            {
+                string bare = killed.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                    ? killed.Substring(0, killed.Length - 4) : killed;
+                if (whiteSet.Contains(bare)) return "白名单里的进程被结束了：" + killed;
+            }
+            if (outcome.Killed > 0 && outcome.Lines.Count == 0) return "结束了进程却没有记录原因";
+            return "";
+        }
+
+        private static string TestCleanup()
+        {
+            List<string> dirs = Cleanup.TargetDirs(false);
+            if (dirs.Count < 3) return "清理目标目录太少（" + dirs.Count + "）";
+            bool hasTemp = false;
+            foreach (string entry in dirs)
+            {
+                string dir = entry.Substring(0, entry.LastIndexOf('|'));
+                if (string.Equals(dir.TrimEnd('\\'),
+                        (Environment.GetEnvironmentVariable("TEMP") ?? "").TrimEnd('\\'),
+                        StringComparison.OrdinalIgnoreCase)) hasTemp = true;
+                if (!Cleanup.IsSafeTarget(dir)) return "白名单目录被判为不安全：" + dir;
+            }
+            if (!hasTemp) return "清理目标里没有 %TEMP%";
+
+            // 安全闸门：盘根 / Windows 目录 / 用户主目录都必须拒绝
+            if (Cleanup.IsSafeTarget("C:\\")) return "盘根竟然被判为可清理";
+            if (Cleanup.IsSafeTarget(Environment.GetFolderPath(Environment.SpecialFolder.Windows)))
+                return "Windows 目录竟然被判为可清理";
+            if (Cleanup.IsSafeTarget(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)))
+                return "用户主目录竟然被判为可清理";
+
+            double mb = Cleanup.Measure();      // 只测量，不删除
+            if (mb < 0) return "测量返回负数";
+            return "";
+        }
+
+        private static string TestSystemInfo()
+        {
+            var monitor = new SystemMonitor();
+            monitor.Capture(false, false);
+            SystemSnapshot snap = monitor.Capture(false, false);
+            if (snap.MemTotalMb <= 0) return "内存总量读取失败";
+            if (snap.AvailableMb <= 0) return "可用内存读取失败";
+            if (snap.MemPercent < 0 || snap.MemPercent > 100) return "内存占用百分比越界：" + snap.MemPercent;
+            if (snap.CpuPercent < 0 || snap.CpuPercent > 100) return "CPU 占用百分比越界：" + snap.CpuPercent;
+            if (snap.Drives.Count == 0) return "没有枚举到固定磁盘";
+            foreach (DriveInfoRow d in snap.Drives)
+            {
+                if (d.TotalGb <= 0) return "磁盘 " + d.Letter + " 容量异常";
+                if (d.UsedPercent < 0 || d.UsedPercent > 100) return "磁盘 " + d.Letter + " 占用率越界";
+            }
+            if (SystemMonitor.AvailableMb() <= 0) return "静态可用内存读取失败";
+            // 提权助手不该抛异常（拿不到权限是正常的，这里只看不炸）
+            MemTrim.EnablePrivilege("SeProfileSingleProcessPrivilege");
             return "";
         }
 

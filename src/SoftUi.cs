@@ -275,7 +275,6 @@ namespace Hz
         public Color Tone = Theme.TextDim;
         public bool Primary;
         public bool Danger;
-        public bool Ghost;
 
         private bool _hover;
         private bool _press;
@@ -319,12 +318,6 @@ namespace Hz
                 fill = _hover ? Theme.Danger : Theme.Alpha(Theme.Danger, 42);
                 border = Theme.Alpha(Theme.Danger, 130);
                 fg = _hover ? Color.White : Theme.Danger;
-            }
-            else if (Ghost)
-            {
-                fill = _hover ? Theme.CardHover : Color.Transparent;
-                border = _hover ? Theme.CardBorder : Color.Transparent;
-                fg = _hover ? Theme.Text : Tone;
             }
             else
             {

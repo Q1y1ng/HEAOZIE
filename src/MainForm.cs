@@ -41,14 +41,18 @@ namespace Hz
         /// --killer-demo=N：预填 N 秒并在「定时关闭应用」页起倒计时（冒烟测试，不会真的结束进程）。
         public int DemoKillerSeconds;
 
+        /// --booster-demo：在「游戏加速」页跑一次预演 Turbo（只预演结束进程，其余动作跳过）。
+        public bool DemoBooster;
+
         public AppConfig Cfg { get { return _cfg; } }
 
-        public MainForm(AppConfig cfg, int initialTab, int demoPowerSeconds, int demoKillerSeconds)
+        public MainForm(AppConfig cfg, int initialTab, int demoPowerSeconds, int demoKillerSeconds, bool demoBooster)
         {
             _cfg = cfg;
-            // 必须在构造期就拿到：ApplyTab 在构造里跑，晚了就赶不上首屏的演示倒计时
+            // 必须在构造期就拿到：ApplyTab 在构造里跑，晚了就赶不上首屏的演示
             DemoPowerSeconds = demoPowerSeconds;
             DemoKillerSeconds = demoKillerSeconds;
+            DemoBooster = demoBooster;
 
             Text = AppInfo.DisplayName;
             Icon = Theme.AppIcon(32);
@@ -203,6 +207,11 @@ namespace Hz
                         var killer = panel as KillerPanel;
                         if (killer != null) killer.DemoStart(DemoKillerSeconds);
                     }
+                    if (DemoBooster)
+                    {
+                        var booster = panel as BoosterPanel;
+                        if (booster != null) booster.DemoStart();
+                    }
                 }
                 for (int i = 0; i < 4; i++)
                 {
@@ -225,7 +234,12 @@ namespace Hz
         public void SetStatus(string text)
         {
             if (string.IsNullOrEmpty(text)) return;
-            if (InvokeRequired) { BeginInvoke(new Action<string>(SetStatus), text); return; }
+            if (InvokeRequired)
+            {
+                // 句柄未建好时 BeginInvoke 会抛异常；启动瞬间丢一条状态文案不算事故
+                try { BeginInvoke(new Action<string>(SetStatus), text); } catch { }
+                return;
+            }
             _statusText.Text = text;
         }
 
@@ -246,19 +260,31 @@ namespace Hz
 
         public void SetTrayStatus(string text)
         {
-            if (InvokeRequired) { BeginInvoke(new Action<string>(SetTrayStatus), text); return; }
+            if (InvokeRequired)
+            {
+                try { BeginInvoke(new Action<string>(SetTrayStatus), text); } catch { }
+                return;
+            }
             if (_tray != null) _tray.SetTooltip(text);
         }
 
         public void SetTrayColor(Color color)
         {
-            if (InvokeRequired) { BeginInvoke(new Action<Color>(SetTrayColor), color); return; }
+            if (InvokeRequired)
+            {
+                try { BeginInvoke(new Action<Color>(SetTrayColor), color); } catch { }
+                return;
+            }
             if (_tray != null) _tray.SetState(color);
         }
 
         public void Notify(string title, string text)
         {
-            if (InvokeRequired) { BeginInvoke(new Action<string, string>(Notify), title, text); return; }
+            if (InvokeRequired)
+            {
+                try { BeginInvoke(new Action<string, string>(Notify), title, text); } catch { }
+                return;
+            }
             if (_tray != null) _tray.Balloon(title, text);
         }
 

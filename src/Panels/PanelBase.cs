@@ -95,7 +95,7 @@ namespace Hz.Panels
                 Dock = DockStyle.Fill,
                 FlowDirection = FlowDirection.TopDown,
                 WrapContents = false,
-                AutoScroll = false,
+                AutoScroll = true,
                 BackColor = Theme.Bg,
                 Margin = new Padding(0)
             };

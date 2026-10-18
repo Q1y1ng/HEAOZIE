@@ -82,6 +82,20 @@ namespace Hz.Panels
             }
         }
 
+        /// 列表里存在但未勾选的进程名（加速器据此把它们加进白名单）。
+        public List<string> UncheckedNames
+        {
+            get
+            {
+                var list = new List<string>();
+                foreach (ProcEntry e in _rows)
+                {
+                    if (!_checked.Contains(e.Pid)) list.Add(e.Name);
+                }
+                return list;
+            }
+        }
+
         public void SetRows(List<ProcEntry> rows)
         {
             _rows.Clear();

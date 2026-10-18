@@ -21,6 +21,7 @@ namespace Hz
             public int ExitAfterSeconds;
             public int DemoPowerSeconds;
             public int DemoKillerSeconds;
+            public bool DemoBooster;
             public bool Help;
         }
 
@@ -32,7 +33,8 @@ namespace Hz
             "  HZ.exe --selftest       无界面自检，结果写入 logs\\selftest.txt，退出码 0/1\r\n" +
             "  HZ.exe --exit-after=5   启动 5 秒后自动退出（冒烟测试用）\r\n" +
             "  HZ.exe --power-demo=5   演示定时电源全流程（5 秒倒计时 + 撤销窗口），不真的执行\r\n" +
-            "  HZ.exe --killer-demo=5  演示定时关闭应用全流程（不真的结束任何进程）\r\n";
+            "  HZ.exe --killer-demo=5  演示定时关闭应用全流程（不真的结束任何进程）\r\n" +
+            "  HZ.exe --booster-demo   演示游戏加速的预演 Turbo（不真的结束进程/清内存/清文件）\r\n";
 
         [STAThread]
         private static int Main(string[] args)
@@ -69,7 +71,7 @@ namespace Hz
                 AppConfig cfg = AppConfig.Load();
                 if (!string.IsNullOrEmpty(cfg.LoadError)) Log.Warn(cfg.LoadError);
 
-                var form = new MainForm(cfg, opt.Tab, opt.DemoPowerSeconds, opt.DemoKillerSeconds)
+                var form = new MainForm(cfg, opt.Tab, opt.DemoPowerSeconds, opt.DemoKillerSeconds, opt.DemoBooster)
                 {
                     StartMinimized = opt.StartMinimized,
                     AutoExitSeconds = opt.ExitAfterSeconds
@@ -161,6 +163,13 @@ namespace Hz
                 {
                     int n;
                     if (int.TryParse(lower.Substring(14).Trim(), out n) && n > 0) { o.DemoKillerSeconds = n; o.Tab = 2; }
+                    continue;
+                }
+
+                if (lower == "--booster-demo")
+                {
+                    o.DemoBooster = true;
+                    o.Tab = 0;
                     continue;
                 }
             }
