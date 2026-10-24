@@ -104,7 +104,7 @@ const ARROW = {left:"←", right:"→", up:"↑", down:"↓", "":""};
 const ZH = {left:"左", right:"右", up:"上", down:"下", "":""};
 
 document.getElementById("sub").textContent =
-  `seed ${meta.seed} · ${meta.budget_ms} ms/步 · ${steps.length} 步 · 最高 ${steps[steps.length-1].score.toLocaleString()} 分`;
+  `seed ${meta.seed} · ${meta.budget_ms} ms/步 · ${steps.length} 步 · 最高 ${steps[steps.length-1].s.toLocaleString()} 分`;
 
 const board = document.getElementById("board");
 const cells = [];
