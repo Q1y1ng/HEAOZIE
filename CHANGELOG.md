@@ -15,6 +15,18 @@
   OpenCode Go 需 `x-opencode-session`；
 - 测试：副本 Node 逻辑 53 项 + 结构检查全过；viewer 108 步回放零 JS 错误。
 
+### 新增（2048 Agent · CS2 demo 式回放与报告，2026-10-24）
+
+- `build_demo.py`：一个 run 目录产出四件套——`demo.html`（播放/暂停/倍速/拖时间轴/关键时刻书签，
+  按播放进度逐字回放该步完整思考，「决策」页签对比四个方向的得分/空格/存活与贪心建议）、
+  `demo.json`（demo 文件本体，可下载离线重放）、`report.html` + `REPORT.md`（结果卡片、配置、
+  过程数据、得分曲线、每步耗时图、与其他策略对比、关键节点、阶段走势、思考样本、完整走子表）；
+- `llm.py` 接入 `reasoning_effort`（网关参数）；`play.py` 新增 `--reasoning-effort`、`--think-brief N`；
+  `viewer.html` 增加 DeepSeek 模型标签；目录页每张卡加「Demo 回放 / 完整报告」入口；
+- DeepSeek V4.1 Flash (high) 纯棋盘首局：100 步 / **980 分 / 最大 128**（进程被外部中断），
+  平均每步思考 2.3 万字符（最长 9.7 万）、与贪心一致率 31%；不设限局 `ds-flash-unlimited-s1` 在跑；
+- 已知坑：网关 `base_url` 不能带 `/v1`（客户端会再拼一层，404）；提示词压不住 `reasoning_content` 长度。
+
 ### 变更（M5 · 界面重做为 Windows 11 Fluent）
 
 > 起因：v1 的观感是"深色 Web 仪表盘"，与 Win11 原生应用不是一回事。本轮把整个外观层重做，

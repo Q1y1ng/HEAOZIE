@@ -24,7 +24,8 @@
   .stats { display:flex; gap:14px; margin-top:2px; }
   .stat b { display:block; font-size:19px; color:#4d433a; line-height:1.1; }
   .stat span { font-size:10px; color:#9a8f83; }
-  .open { margin-top:6px; font-size:12px; font-weight:800; color:var(--accent); }
+  .open { margin-top:6px; font-size:12px; font-weight:800; color:var(--accent); text-decoration:none; }
+  .links { display:flex; gap:16px; align-items:center; margin-top:6px; }
   footer { max-width:1080px; margin:0 auto; padding:0 24px 40px; font-size:11px; color:#a69a8d; line-height:1.7; }
   code { font-family:"Cascadia Code","Consolas",monospace; background:#efe9e0; padding:1px 4px; border-radius:4px; }
 </style>
@@ -33,9 +34,9 @@
   <header>
     <h1>2048 <span>大模型对局目录</span></h1>
     <p>
-      同一个 2048 副本、同一个 seed，分别由本地 4B 与云端 beam-free 来下。
+      同一个 2048 副本、同一个 seed，分别由本地 4B、云端 beam-free 与 DeepSeek V4.1 Flash 来下。
       <b>纯棋盘</b>模式只给当前盘面、规则和合法方向；<b>候选辅助</b>模式会先把每个合法落子后的盘面算给模型看。
-      点进任意一局，可逐步看盘面、分数和模型思考原文。
+      每局都能逐步看盘面、分数和模型思考原文，带 Demo 的局还可以像看录像一样播放。
     </p>
   </header>
   <main id="cards"></main>
@@ -47,9 +48,11 @@
 
   <script>
     const RUNS = [
-      { dir: "runs/plain-4b-s1", title: "Qwen3.5-4B · 纯棋盘", note: "本地 4B，只给当前盘面 / 规则 / 合法方向，模型自己模拟落子。思考预算 512 token。" },
-      { dir: "runs/assisted-4b-s1", title: "Qwen3.5-4B · 候选辅助（同 seed 对照）", note: "本地 4B，引擎先算每个合法落子后的盘面，模型只做选择；与纯棋盘局同 seed 1。" },
-      { dir: "runs/free-beam-s1b", title: "beam-free · 纯棋盘", note: "OpenCode Go 免费档，云端；不设思考上限（max_tokens 8192），流式思考。" },
+      { dir: "runs/ds-flash-unlimited-s1", title: "DeepSeek V4.1 Flash (high) · 纯棋盘 · 不设限", note: "云端 DeepSeek v4.1 flash，high 推理档；不设思考预算、不设字数、不设时长，纯棋盘自己模拟。主结果局。", demo: true },
+      { dir: "runs/ds-flash-plain-s1", title: "DeepSeek V4.1 Flash (high) · 纯棋盘（100 步中断）", note: "同模型同 seed；每步思考自然长度（1.4 万–9.7 万字符），第 100 步 980 分 / 128 块时进程被外部中断。", demo: true },
+      { dir: "runs/plain-4b-s1", title: "Qwen3.5-4B · 纯棋盘", note: "本地 4B，只给当前盘面 / 规则 / 合法方向，模型自己模拟落子。思考预算 512 token。", demo: true },
+      { dir: "runs/assisted-4b-s1", title: "Qwen3.5-4B · 候选辅助（同 seed 对照）", note: "本地 4B，引擎先算每个合法落子后的盘面，模型只做选择；与纯棋盘局同 seed 1。", demo: true },
+      { dir: "runs/free-beam-s1b", title: "beam-free · 纯棋盘", note: "OpenCode Go 免费档，云端；不设思考上限（max_tokens 8192），流式思考。", demo: true },
       { dir: "runs/live-4b-s1", title: "Qwen3.5-4B · 候选辅助（样本）", note: "引擎先把每个合法落子后的盘面算出来，模型只做选择；19 步样本。" },
       { dir: "runs/calib-llm-512", title: "Qwen3.5-4B · 1 步校准", note: "冒烟测试，用于验证提示词、流式解析和记录链路。" }
     ];
@@ -57,6 +60,7 @@
     const STATUS = {
       running: ["运行中", "live"], starting: ["准备中", "live"], lost: ["游戏结束", "bad"],
       max_moves: ["达到步数上限", "bad"], time_limit: ["达到时间上限", "bad"],
+      interrupted: ["被中断", "bad"],
       aborted: ["已中断", "bad"], error: ["出错", "bad"]
     };
 
@@ -71,9 +75,12 @@
     }
 
     function card(run, meta) {
-      const a = document.createElement("a");
+      const a = document.createElement("div");
       a.className = "card";
-      a.href = "viewer.html?run=" + encodeURIComponent(run.dir) + (meta && (meta.status === "running" || meta.status === "starting") ? "&live=1" : "");
+      a.style.cursor = "pointer";
+      const viewerUrl = "viewer.html?run=" + encodeURIComponent(run.dir) +
+        (meta && (meta.status === "running" || meta.status === "starting") ? "&live=1" : "");
+      a.onclick = () => { location.href = viewerUrl; };
       const h = document.createElement("h2");
       h.textContent = run.title;
       a.appendChild(h);
@@ -121,10 +128,25 @@
         }
         a.appendChild(stats);
       }
-      const open = document.createElement("div");
+      const links = document.createElement("div");
+      links.className = "links";
+      const open = document.createElement("a");
       open.className = "open";
+      open.href = viewerUrl;
       open.textContent = "逐步观看 →";
-      a.appendChild(open);
+      open.onclick = (e) => e.stopPropagation();
+      links.appendChild(open);
+      if (run.demo) {
+        for (const [href, label] of [["demo.html", "Demo 回放"], ["report.html", "完整报告"]]) {
+          const l = document.createElement("a");
+          l.className = "open";
+          l.href = run.dir + "/" + href;
+          l.textContent = label;
+          l.onclick = (e) => e.stopPropagation();
+          links.appendChild(l);
+        }
+      }
+      a.appendChild(links);
       return a;
     }
 
