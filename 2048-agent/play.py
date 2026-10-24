@@ -117,14 +117,15 @@ class GameDriver:
 
 
 class Recorder:
-    def __init__(self, run_dir: pathlib.Path, meta: dict):
+    def __init__(self, run_dir: pathlib.Path, meta: dict, append: bool = False):
         self.dir = run_dir
         self.dir.mkdir(parents=True, exist_ok=True)
         self.meta = meta
         self.meta_path = self.dir / "meta.json"
         self.steps_path = self.dir / "run.jsonl"
         self.status_path = self.dir / "status.json"
-        self.steps_path.write_text("", encoding="utf-8")
+        if not append:
+            self.steps_path.write_text("", encoding="utf-8")
         self.write_meta()
         self.write_status({"phase": "starting"})
 
@@ -193,6 +194,7 @@ def main() -> int:
     ap.add_argument("--reasoning-effort", default=None, help="gateway-level reasoning effort (e.g. high)")
     ap.add_argument("--headed", action="store_true")
     ap.add_argument("--run-id", default=None)
+    ap.add_argument("--resume", default=None, help="继续一个已有 run 目录：重放已记录走子后接着下")
     ap.add_argument("--out", default=None)
     ap.add_argument("--notes", default="")
     args = ap.parse_args()
@@ -207,47 +209,81 @@ def main() -> int:
         api_key = m.group(1).strip().strip('"').strip("'")
     provider = args.provider or ("cloud" if "opencode" in args.base_url else "local")
 
-    run_id = args.run_id or (time.strftime("%Y%m%d-%H%M%S") + f"-{slug(args.model)}-s{args.seed}")
-    if args.out:
-        run_dir = pathlib.Path(args.out).resolve()
+    resume_steps: list[dict] = []
+    resume_meta: dict | None = None
+    if args.resume:
+        rdir = pathlib.Path(args.resume)
+        if not rdir.is_absolute():
+            rdir = ROOT / rdir
+        if not (rdir / "meta.json").exists():
+            print(f"resume: no meta.json in {rdir}", file=sys.stderr)
+            return 2
+        resume_meta = json.loads((rdir / "meta.json").read_text(encoding="utf-8"))
+        resume_steps = [
+            json.loads(line)
+            for line in (rdir / "run.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        args.seed = int(resume_meta.get("seed", args.seed))
+        args.size = int(resume_meta.get("size", args.size))
+        args.spawn = int(resume_meta.get("spawn_count", args.spawn))
+        run_id = resume_meta.get("run_id") or rdir.name
+        run_dir = rdir
+        print(f"resume: {len(resume_steps)} steps from {run_dir}")
     else:
-        run_dir = ROOT / "runs" / run_id
-    if run_dir.exists() and any(run_dir.iterdir()):
-        print(f"Refusing to overwrite non-empty run dir: {run_dir}", file=sys.stderr)
-        return 2
+        run_id = args.run_id or (time.strftime("%Y%m%d-%H%M%S") + f"-{slug(args.model)}-s{args.seed}")
+        if args.out:
+            run_dir = pathlib.Path(args.out).resolve()
+        else:
+            run_dir = ROOT / "runs" / run_id
+        if run_dir.exists() and any(run_dir.iterdir()):
+            print(f"Refusing to overwrite non-empty run dir: {run_dir}", file=sys.stderr)
+            return 2
 
-    meta = {
-        "run_id": run_id,
-        "created_at": now_iso(),
-        "started_at": now_iso(),
-        "status": "starting",
-        "model": args.model,
-        "provider": provider,
-        "base_url": args.base_url,
-        "seed": args.seed,
-        "size": args.size,
-        "spawn_count": args.spawn,
-        "thinking": True,
-        "policy": args.policy,
-        "assisted": not args.plain,
-        "prompt_version": "assisted-v1" if not args.plain else "plain-v1",
-        "temperature": args.temperature,
-        "max_tokens": args.max_tokens,
-        "thinking_unlimited": args.unlimited_thinking,
-        "think_brief": args.think_brief,
-        "reasoning_effort": args.reasoning_effort,
-        "llm_timeout": args.llm_timeout,
-        "max_moves": args.max_moves,
-        "max_minutes": args.max_minutes,
-        "game_source": str(ROOT / "game" / "index.html"),
-        "notes": args.notes,
-        "initial_grid": None,
-        "final": None,
-        "moves_done": 0,
-        "score": 0,
-        "max_tile": 0,
-    }
-    rec = Recorder(run_dir, meta)
+    if resume_meta is not None:
+        meta = dict(resume_meta)
+        meta.update(
+            status="running",
+            final=None,
+            notes=(meta.get("notes") or "") + f"；{now_iso()} 续局",
+            resumed_at=now_iso(),
+            moves_done=len(resume_steps),
+            score=resume_steps[-1]["score"] if resume_steps else 0,
+            max_tile=resume_steps[-1]["max_tile"] if resume_steps else 0,
+        )
+    else:
+        meta = {
+            "run_id": run_id,
+            "created_at": now_iso(),
+            "started_at": now_iso(),
+            "status": "starting",
+            "model": args.model,
+            "provider": provider,
+            "base_url": args.base_url,
+            "seed": args.seed,
+            "size": args.size,
+            "spawn_count": args.spawn,
+            "thinking": True,
+            "policy": args.policy,
+            "assisted": not args.plain,
+            "prompt_version": "assisted-v1" if not args.plain else "plain-v1",
+            "temperature": args.temperature,
+            "max_tokens": args.max_tokens,
+            "thinking_unlimited": args.unlimited_thinking,
+            "think_brief": args.think_brief,
+            "reasoning_effort": args.reasoning_effort,
+            "llm_timeout": args.llm_timeout,
+            "max_moves": args.max_moves,
+            "max_minutes": args.max_minutes,
+            "game_source": str(ROOT / "game" / "index.html"),
+            "notes": args.notes,
+            "initial_grid": None,
+            "final": None,
+            "moves_done": 0,
+            "score": 0,
+            "max_tile": 0,
+        }
+    rec = Recorder(run_dir, meta, append=bool(resume_steps))
     print(f"run dir: {run_dir}")
 
     client = None
@@ -273,9 +309,12 @@ def main() -> int:
 
     rng = random.Random(args.seed * 7919 + 1)
     started = time.time()
-    moves = 0
-    history: list[dict] = []
-    reached = False
+    moves = len(resume_steps)
+    history: list[dict] = [
+        {"i": s["i"], "move": s["move"], "gain": s.get("gained", 0), "score": s["score"]}
+        for s in resume_steps
+    ]
+    reached = any(s.get("max_tile", 0) >= 2048 for s in resume_steps)
     status = "running"
     final_state = None
     driver = None
@@ -291,9 +330,22 @@ def main() -> int:
         browser = pw.chromium.launch(headless=not args.headed, args=["--disable-gpu"])
         driver = GameDriver(browser, args.seed, args.size, args.spawn)
         st0 = driver.state()
-        rec.update_meta(initial_grid=st0["grid"], size=st0["size"], empties=st0["empties"])
-        driver.screenshot(rec.dir / "start.png")
-        print(f"initial: score={st0['score']} max={st0['maxTile']} seed={args.seed}")
+        if resume_steps:
+            for k, s in enumerate(resume_steps, 1):
+                after, _won = driver.move(s["move"])
+                if after["grid"] != s["grid_after"]:
+                    raise RuntimeError(
+                        f"resume mismatch at step {k}: replayed grid != recorded grid_after"
+                    )
+            st0 = driver.state()
+            print(
+                f"resumed: replayed {len(resume_steps)} moves, "
+                f"score={st0['score']} max={st0['maxTile']}"
+            )
+        else:
+            rec.update_meta(initial_grid=st0["grid"], size=st0["size"], empties=st0["empties"])
+            driver.screenshot(rec.dir / "start.png")
+            print(f"initial: score={st0['score']} max={st0['maxTile']} seed={args.seed}")
 
         while moves < args.max_moves:
             if time.time() - started > args.max_minutes * 60:

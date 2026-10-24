@@ -240,6 +240,9 @@ main{flex:1;display:grid;grid-template-columns:minmax(420px,1fr) 420px;gap:16px;
 .speeds{display:flex;gap:4px}
 .speeds button{padding:4px 8px;font-size:12px}
 .speeds button.on{background:#20304a;border-color:#3f6ea8}
+.cadence{display:flex;gap:4px}
+.cadence button{padding:4px 8px;font-size:12px}
+.cadence button.on{background:#3a2b12;border-color:#b07d2b;color:#ffd166}
 .hint{color:var(--dim);font-size:11px;white-space:nowrap}
 @media (max-width:1100px){main{grid-template-columns:1fr;grid-template-rows:auto auto}.side{max-height:46vh}}
 </style>
@@ -303,8 +306,9 @@ main{flex:1;display:grid;grid-template-columns:minmax(420px,1fr) 420px;gap:16px;
   <div class="time"><b id="tcur">0:00</b> / <span id="tend">0:00</span></div>
   <div class="track" id="track"><div class="fill" id="fill"></div><div class="ticks" id="ticks"></div></div>
   <div class="speeds" id="speeds"></div>
+  <div class="cadence" id="cadence"></div>
   <button id="dl" title="导出 demo.json">下载 demo</button>
-  <span class="hint">空格 播放 · ←→ 单步 · ↑↓ 倍速 · 1–4 跳段</span>
+  <span class="hint">空格 播放 · ←→ 单步 · ↑↓ 倍速 · C 每步 1 秒</span>
 </footer>
 
 <script>
@@ -326,7 +330,9 @@ const dirArrow = d => ({up:"↑",down:"↓",left:"←",right:"→"}[d] || "?");
 
 /* per-step playback duration: real latency, but enough time to read the thinking */
 const QUICK = { on:false };
+const CADENCE = { sec: null };
 function stepDur(s){
+  if (CADENCE.sec) return CADENCE.sec;
   if (QUICK.on) return 0.55;
   const lat = (s.latency_ms || 0) / 1000;
   const read = (s.reasoning_chars || 0) / 95;      // ~95 chars per second
@@ -334,6 +340,23 @@ function stepDur(s){
 }
 let DUR = STEPS.map(stepDur);
 let TOTAL = DUR.reduce((a,b)=>a+b, 0);
+
+function applyCadence(sec){
+  CADENCE.sec = sec;
+  DUR = STEPS.map(stepDur);
+  TOTAL = DUR.reduce((a,b)=>a+b, 0);
+  $("ticks").innerHTML = "";
+  buildTicks();
+  $("tend").textContent = fmtT(TOTAL);
+  t = Math.min(t, TOTAL);
+  document.querySelectorAll("#cadence button").forEach(b => {
+    b.classList.toggle("on", sec != null && Number(b.dataset.c) === Number(sec));
+  });
+  if (sec != null) setSpeed(1);   // “1s/步”就是字面意思：1 倍速下每秒一步
+  shownIdx = -1;
+  render(true);
+  if (sec != null && !playing) togglePlay();
+}
 
 /* ---------- state ---------- */
 let idx = 0;            // current step index
@@ -744,6 +767,7 @@ function init(){
     else if (e.key === "2"){ seekTime(TOTAL*0.25); }
     else if (e.key === "3"){ seekTime(TOTAL*0.5); }
     else if (e.key === "4"){ seekTime(TOTAL*0.75); }
+    else if (e.key === "c" || e.key === "C"){ applyCadence(CADENCE.sec ? null : 1); }
   });
   window.addEventListener("resize", () => { buildBoard(); render(true); });
   // speed buttons
@@ -755,6 +779,14 @@ function init(){
     sp.appendChild(b);
   });
   setSpeed(2);
+  const cd = $("cadence");
+  [[0.5, "0.5s/步"], [1, "1s/步"], [2, "2s/步"]].forEach(([sec, label]) => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.dataset.c = sec;
+    b.onclick = () => applyCadence(CADENCE.sec === sec ? null : sec);
+    cd.appendChild(b);
+  });
   // autoplay like a demo: start ~0.6s after load
   setTimeout(() => { if (!playing) togglePlay(); }, 600);
 }
