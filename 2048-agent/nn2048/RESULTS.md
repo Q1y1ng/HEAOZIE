@@ -99,6 +99,26 @@ py -3 bench.py --exe engine_bb.exe --seeds 8 --budget 100 --parallel 8 --start-s
 clang++ -O3 -std=c++17 -D_CRT_SECURE_NO_WARNINGS -o engine_bb.exe engine_bb.cpp
 ```
 
+## 6. 演示产物（2026-10-25）
+
+最优存盘局（`--save` 逐步记录）：**seed 4 · 339,108 分 · 16384 块 · 12,812 步 · 100 ms/步**。
+
+| 产物 | 路径 | 说明 |
+| --- | --- | --- |
+| 浓缩视频 | `runs/engine-bb-s4/demo_condensed.mp4` | 4:22，1280×720，2 fps（每帧 0.5 s），25 步/帧 |
+| 交互回放 | `runs/engine-bb-s4/demo.html` | 自包含单页，12,812 步可拖时间轴 / 0.1–2 s 定速 / 里程碑跳转 |
+| 原始逐步数据 | `runs/engine-bb-s4/engine.json` | `engine_bb --save` 格式 |
+
+重新生成（不需要浏览器，Pillow 直出帧 → ffmpeg）：
+
+```powershell
+py -3 nn2048\build_engine_demo.py runs\engine-bb-s4\engine.json --out runs\engine-bb-s4\demo.html
+py -3 nn2048\render_video.py runs\engine-bb-s4\engine.json --out demo.mp4 --target-seconds 260 --fps 2
+```
+
+`render_video.py` 的 `--stride N` 是固定步长（N 步/帧），`--target-seconds` 自动算步长凑时长；
+`--fps 2` 即每帧 0.5 s。要"每步一帧"就 `--stride 1`（12,812 步 → 1 小时 47 分）。
+
 ## 附录 A. 旧数组引擎数据（2026-10-24，`engine.cpp`）
 
 | 批次 | 配置 | 局数 | 均分 | 最高 | 最大块 |
