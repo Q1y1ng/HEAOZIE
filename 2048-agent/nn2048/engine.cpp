@@ -258,11 +258,15 @@ static double searchChance(const Board& b, int depth, Deadline& dl) {
     std::vector<int> empties;
     for (int i = 0; i < n * n; i++) if (!b.c[i]) empties.push_back(i);
     if (empties.empty()) return searchMax(b, depth, dl);
-    // approximate with an evenly spaced subset on wide boards
+    // approximate with an evenly spaced subset on wide boards; in the tight
+    // endgame (<=4 empties) expand every spawn exactly — a wrong guess there
+    // kills the whole run.
     std::vector<int> cells;
-    if ((int)empties.size() > g_cfg.chanceCap) {
-        double step = (double)empties.size() / g_cfg.chanceCap;
-        for (int i = 0; i < g_cfg.chanceCap; i++) cells.push_back(empties[(size_t)(i * step)]);
+    int cap = g_cfg.chanceCap;
+    if ((int)empties.size() <= 4) cap = (int)empties.size();
+    if ((int)empties.size() > cap) {
+        double step = (double)empties.size() / cap;
+        for (int i = 0; i < cap; i++) cells.push_back(empties[(size_t)(i * step)]);
     } else {
         cells = empties;
     }
