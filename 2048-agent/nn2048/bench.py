@@ -13,7 +13,7 @@ import statistics
 import subprocess
 
 HERE = pathlib.Path(__file__).resolve().parent
-EXE = HERE / "engine3.exe"
+EXE = HERE / "engine4.exe"
 
 
 def run_game(seed: int, size: int, budget: float, extra: list[str]) -> dict | None:
@@ -77,3 +77,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

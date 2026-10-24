@@ -26,11 +26,13 @@ using Clock = std::chrono::steady_clock;
 
 struct Board {
     int n;
-    std::vector<int8_t> c;  // n*n
-    explicit Board(int n_) : n(n_), c(n_ * n_, 0) {}
+    int8_t c[64];  // n*n, fixed size: no heap allocation in the search hot path
+    explicit Board(int n_ = 4) : n(n_) { std::memset(c, 0, sizeof(c)); }
     int8_t& at(int r, int col) { return c[r * n + col]; }
     int8_t at(int r, int col) const { return c[r * n + col]; }
-    bool operator==(const Board& o) const { return c == o.c; }
+    bool operator==(const Board& o) const {
+        return n == o.n && std::memcmp(c, o.c, (size_t)(n * n)) == 0;
+    }
 };
 
 struct Config {
@@ -48,6 +50,7 @@ struct Config {
     double wCorner = 60.0;
     double wSnake = 0.0;
     double wCornerProx = 0.0;
+    int evalMode = 0;   // 0 = raw weighted sum, 1 = paper-style normalized features
 };
 
 static Config g_cfg;
@@ -157,7 +160,7 @@ static double evaluate(const Board& b) {
     }
     // smoothness: adjacent log2 gaps (like the paper's 1/(1+diff) ratio)
     double smooth = 0.0;
-    if (g_cfg.wSmooth != 0.0) {
+    if (g_cfg.wSmooth != 0.0 || g_cfg.evalMode == 1) {
         for (int r = 0; r < n; r++)
             for (int col = 0; col < n; col++) {
                 int v = b.at(r, col);
@@ -177,7 +180,7 @@ static double evaluate(const Board& b) {
     }
     // snake: count how many consecutive snake-path pairs are non-increasing
     double snake = 0.0;
-    if (g_cfg.wSnake != 0.0) {
+    if (g_cfg.wSnake != 0.0 || g_cfg.evalMode == 1) {
         int prev = -1;
         for (int r = 0; r < n; r++)
             for (int col = 0; col < n; col++) {
@@ -188,6 +191,20 @@ static double evaluate(const Board& b) {
             }
     }
     double snakeRatio = snake / (double)(n * n - 1);
+    if (g_cfg.evalMode == 1) {
+        // paper-style normalized evaluation: every feature lands in [0,1],
+        // weights sum to 1 (Merge and Conquer, arXiv:2510.20205, cycle-11 weights)
+        double emptyRatio = empties / (double)(n * n);
+        double maxRatio = mx / (double)(n * n);
+        double mergeRatio = merges / (double)(n * n);
+        double smoothRatio = smooth / (2.0 * n * (n - 1));
+        return 10000.0 * (0.30 * emptyRatio
+                        + 0.20 * maxRatio
+                        + 0.15 * bestProx
+                        + 0.10 * mergeRatio
+                        + 0.10 * smoothRatio
+                        + 0.15 * snakeRatio);
+    }
     double smoothTerm = (g_cfg.wSmooth != 0.0) ? smooth : 0.0;
     double snakeTerm = (g_cfg.wSnake != 0.0) ? snakeRatio : 0.0;
     double cornerHit = 0.0;
@@ -255,23 +272,26 @@ static double searchMax(const Board& b, int depth, Deadline& dl) {
 
 static double searchChance(const Board& b, int depth, Deadline& dl) {
     int n = b.n;
-    std::vector<int> empties;
-    for (int i = 0; i < n * n; i++) if (!b.c[i]) empties.push_back(i);
-    if (empties.empty()) return searchMax(b, depth, dl);
+    int empties[64];
+    int ne = 0;
+    for (int i = 0; i < n * n; i++) if (!b.c[i]) empties[ne++] = i;
+    if (ne == 0) return searchMax(b, depth, dl);
     // approximate with an evenly spaced subset on wide boards; in the tight
     // endgame (<=4 empties) expand every spawn exactly — a wrong guess there
     // kills the whole run.
-    std::vector<int> cells;
+    int cells[64];
+    int nc = 0;
     int cap = g_cfg.chanceCap;
-    if ((int)empties.size() <= 4) cap = (int)empties.size();
-    if ((int)empties.size() > cap) {
-        double step = (double)empties.size() / cap;
-        for (int i = 0; i < cap; i++) cells.push_back(empties[(size_t)(i * step)]);
+    if (ne <= 4) cap = ne;
+    if (ne > cap) {
+        double step = (double)ne / cap;
+        for (int i = 0; i < cap; i++) cells[nc++] = empties[(int)(i * step)];
     } else {
-        cells = empties;
+        for (int i = 0; i < ne; i++) cells[nc++] = empties[i];
     }
     double total = 0.0;
-    for (int idx : cells) {
+    for (int k = 0; k < nc; k++) {
+        int idx = cells[k];
         Board b2 = b;
         b2.c[idx] = 1;
         total += (1.0 - g_cfg.prob4) * searchMax(b2, depth, dl);
@@ -281,7 +301,7 @@ static double searchChance(const Board& b, int depth, Deadline& dl) {
         }
         if (dl.hit) break;
     }
-    return total / (double)cells.size();
+    return total / (double)nc;
 }
 
 struct Choice { int dir; double value; int depth; };
@@ -312,10 +332,11 @@ static Choice choose_move(const Board& b) {
 static std::mt19937_64 g_rng;
 
 static void spawn_tile(Board& b) {
-    std::vector<int> e;
-    for (int i = 0; i < b.n * b.n; i++) if (!b.c[i]) e.push_back(i);
-    if (e.empty()) return;
-    std::uniform_int_distribution<size_t> pick(0, e.size() - 1);
+    int e[64];
+    int ne = 0;
+    for (int i = 0; i < b.n * b.n; i++) if (!b.c[i]) e[ne++] = i;
+    if (ne == 0) return;
+    std::uniform_int_distribution<int> pick(0, ne - 1);
     std::uniform_real_distribution<double> u(0.0, 1.0);
     b.c[e[pick(g_rng)]] = (u(g_rng) < g_cfg.prob4) ? 2 : 1;
 }
@@ -356,6 +377,7 @@ int main(int argc, char** argv) {
         else if (a == "--w-corner") g_cfg.wCorner = std::stod(next());
         else if (a == "--w-snake") g_cfg.wSnake = std::stod(next());
         else if (a == "--w-cprox") g_cfg.wCornerProx = std::stod(next());
+        else if (a == "--eval-norm") g_cfg.evalMode = 1;
     }
     double sumScore = 0, sumSec = 0;
     int bestScore = 0, minScore = 1 << 30;
