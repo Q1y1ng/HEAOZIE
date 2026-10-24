@@ -17,3 +17,4 @@ _tmp/
 
 # 2048 agent 运行产物（日志、回放、截图；可由 play.py 重新生成）
 2048-agent/runs/
+2048-agent/nn2048/*.exe
