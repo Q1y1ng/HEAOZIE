@@ -30,6 +30,10 @@
   平均每步思考 2.3 万字符（最长 9.7 万）、与贪心一致率 31%；不设限局 `ds-flash-unlimited-s1` 在跑；
 - 新增 `NN_PLAN.md`：2048 专用神经网络方案（三条路线对比、推荐"价值网 + 前瞻"、工期与验收），
   附 `nn2048/bench_env.py` 位棋盘模拟器——实测 39 万 moves/s、随机策略 420 局/s、均分 1148（与基线一致）；
+- 新增 `nn2048/engine.cpp`（通用 N×N 的 expectimax 引擎，启发式权重可命令行扫参）：
+  4×4 三局全部达到 2048（32.6k / 33.0k / 36.4k），比 Python 版 13.6k 高 2.5×；
+- 新增 `nn2048/cpu_cap.ps1`：用 Job Object 把进程树限在指定 CPU 百分比（默认 40%），
+  引擎单线程约占 1 核（本机 ≈5%）；本机 Windows 拒绝 HARD_CAP，退化为 rate-control 平均值上限；
 - 已知坑：网关 `base_url` 不能带 `/v1`（客户端会再拼一层，404）；提示词压不住 `reasoning_content` 长度。
 
 ### 变更（M5 · 界面重做为 Windows 11 Fluent）
