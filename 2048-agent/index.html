@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>2048 · 大模型对局目录</title>
+<style>
+  :root { --bg:#faf8ef; --ink:#776e65; --accent:#8f7a66; --line:#e8ded2; --card:#fffdfa; --green:#2f7d4f; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif; }
+  header { max-width:1080px; margin:0 auto; padding:30px 24px 8px; }
+  h1 { margin:0; font-size:36px; font-weight:900; letter-spacing:-.5px; }
+  h1 span { font-size:15px; color:var(--accent); margin-left:8px; font-weight:600; }
+  header p { margin:10px 0 0; font-size:13px; line-height:1.7; color:#8a7f74; max-width:760px; }
+  main { max-width:1080px; margin:0 auto; padding:18px 24px 50px; display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px 18px; text-decoration:none; color:inherit; display:flex; flex-direction:column; gap:8px; transition:border-color .12s, box-shadow .12s, transform .12s; }
+  .card:hover { border-color:var(--accent); box-shadow:0 6px 22px rgba(95,83,72,.10); transform:translateY(-1px); }
+  .card h2 { margin:0; font-size:17px; color:#4d433a; }
+  .card .note { font-size:12px; color:#9a8f83; line-height:1.55; min-height:36px; }
+  .row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px; color:#8a7f74; }
+  .pill { background:#efe9e0; border-radius:999px; padding:2px 8px; font-weight:700; color:#6f6255; }
+  .pill.live { background:#e0f2e5; color:#2f6b45; }
+  .pill.bad { background:#fbe7e7; color:#9c2f2f; }
+  .stats { display:flex; gap:14px; margin-top:2px; }
+  .stat b { display:block; font-size:19px; color:#4d433a; line-height:1.1; }
+  .stat span { font-size:10px; color:#9a8f83; }
+  .open { margin-top:6px; font-size:12px; font-weight:800; color:var(--accent); }
+  footer { max-width:1080px; margin:0 auto; padding:0 24px 40px; font-size:11px; color:#a69a8d; line-height:1.7; }
+  code { font-family:"Cascadia Code","Consolas",monospace; background:#efe9e0; padding:1px 4px; border-radius:4px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>2048 <span>大模型对局目录</span></h1>
+    <p>
+      同一个 2048 副本、同一个 seed，分别由本地 4B 与云端 beam-free 来下。
+      <b>纯棋盘</b>模式只给当前盘面、规则和合法方向；<b>候选辅助</b>模式会先把每个合法落子后的盘面算给模型看。
+      点进任意一局，可逐步看盘面、分数和模型思考原文。
+    </p>
+  </header>
+  <main id="cards"></main>
+  <footer>
+    原始游戏未改动：<code>E:\AI\tools\HEAOZIE\2048</code>。这里是单独副本
+    <code>E:\AI\tools\HEAOZIE\2048-agent</code>；固定种子通过 <code>?seed=</code> 注入。
+    viewer 每 1.2 秒轮询 <code>run.jsonl</code>，可直接看进行中的对局。
+  </footer>
+
+  <script>
+    const RUNS = [
+      { dir: "runs/plain-4b-s1", title: "Qwen3.5-4B · 纯棋盘", note: "本地 4B，只给当前盘面 / 规则 / 合法方向，模型自己模拟落子。思考预算 512 token。" },
+      { dir: "runs/assisted-4b-s1", title: "Qwen3.5-4B · 候选辅助（同 seed 对照）", note: "本地 4B，引擎先算每个合法落子后的盘面，模型只做选择；与纯棋盘局同 seed 1。" },
+      { dir: "runs/free-beam-s1b", title: "beam-free · 纯棋盘", note: "OpenCode Go 免费档，云端；不设思考上限（max_tokens 8192），流式思考。" },
+      { dir: "runs/live-4b-s1", title: "Qwen3.5-4B · 候选辅助（样本）", note: "引擎先把每个合法落子后的盘面算出来，模型只做选择；19 步样本。" },
+      { dir: "runs/calib-llm-512", title: "Qwen3.5-4B · 1 步校准", note: "冒烟测试，用于验证提示词、流式解析和记录链路。" }
+    ];
+
+    const STATUS = {
+      running: ["运行中", "live"], starting: ["准备中", "live"], lost: ["游戏结束", "bad"],
+      max_moves: ["达到步数上限", "bad"], time_limit: ["达到时间上限", "bad"],
+      aborted: ["已中断", "bad"], error: ["出错", "bad"]
+    };
+
+    function esc(s) { return String(s == null ? "" : s); }
+
+    async function loadMeta(dir) {
+      try {
+        const r = await fetch(dir + "/meta.json?t=" + Date.now(), { cache: "no-store" });
+        if (!r.ok) return null;
+        return await r.json();
+      } catch (e) { return null; }
+    }
+
+    function card(run, meta) {
+      const a = document.createElement("a");
+      a.className = "card";
+      a.href = "viewer.html?run=" + encodeURIComponent(run.dir) + (meta && (meta.status === "running" || meta.status === "starting") ? "&live=1" : "");
+      const h = document.createElement("h2");
+      h.textContent = run.title;
+      a.appendChild(h);
+      const note = document.createElement("div");
+      note.className = "note";
+      note.textContent = run.note;
+      a.appendChild(note);
+      const row = document.createElement("div");
+      row.className = "row";
+      if (meta) {
+        const st = STATUS[meta.status] || [meta.status, ""];
+        const p = document.createElement("span");
+        p.className = "pill " + st[1];
+        p.textContent = st[0];
+        row.appendChild(p);
+        const m = document.createElement("span");
+        m.className = "pill";
+        m.textContent = "seed " + meta.seed;
+        row.appendChild(m);
+        if (meta.assisted === false) {
+          const q = document.createElement("span");
+          q.className = "pill";
+          q.textContent = "纯棋盘";
+          row.appendChild(q);
+        }
+      } else {
+        const p = document.createElement("span");
+        p.className = "pill bad";
+        p.textContent = "暂无数据";
+        row.appendChild(p);
+      }
+      a.appendChild(row);
+      if (meta) {
+        const stats = document.createElement("div");
+        stats.className = "stats";
+        for (const [label, value] of [["步数", meta.moves_done], ["分数", meta.score], ["最大块", meta.max_tile]]) {
+          const d = document.createElement("div");
+          d.className = "stat";
+          const b = document.createElement("b");
+          b.textContent = esc(value == null ? "—" : value);
+          const s = document.createElement("span");
+          s.textContent = label;
+          d.appendChild(b); d.appendChild(s);
+          stats.appendChild(d);
+        }
+        a.appendChild(stats);
+      }
+      const open = document.createElement("div");
+      open.className = "open";
+      open.textContent = "逐步观看 →";
+      a.appendChild(open);
+      return a;
+    }
+
+    async function refresh() {
+      const cards = document.getElementById("cards");
+      const frag = document.createDocumentFragment();
+      for (const run of RUNS) {
+        const meta = await loadMeta(run.dir);
+        frag.appendChild(card(run, meta));
+      }
+      cards.innerHTML = "";
+      cards.appendChild(frag);
+    }
+
+    refresh();
+    setInterval(refresh, 5000);
+  </script>
+</body>
+</html>

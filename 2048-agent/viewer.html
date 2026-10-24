@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>2048 · 本地大模型逐步对局</title>
+<style>
+  :root {
+    --bg: #faf8ef;
+    --ink: #776e65;
+    --ink-light: #f9f6f2;
+    --board: #bbada0;
+    --empty: #cdc1b4;
+    --accent: #8f7a66;
+    --accent-2: #c4b5a5;
+    --line: #e8ded2;
+    --card: #fffdfa;
+    --green: #2f7d4f;
+    --amber: #b26a00;
+    --red: #b33a3a;
+    --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    --mono: "Cascadia Code", "Consolas", "SFMono-Regular", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--font); }
+  body { min-height: 100vh; }
+  .topbar {
+    max-width: 1280px; margin: 0 auto; padding: 22px 24px 10px;
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; flex-wrap: wrap;
+  }
+  .title h1 { margin: 0; font-size: 34px; line-height: 1; letter-spacing: -0.5px; font-weight: 900; }
+  .title h1 span { font-size: 16px; font-weight: 600; color: var(--accent); letter-spacing: 0; margin-left: 8px; }
+  .badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: #efe9e0; color: #6f6255; border-radius: 999px;
+    padding: 4px 10px; font-size: 12px; font-weight: 700;
+  }
+  .badge.status { color: #fff; background: var(--accent); }
+  .badge.status.running { background: var(--green); }
+  .badge.status.starting { background: var(--amber); }
+  .badge.status.bad { background: var(--red); }
+  .badge.live::before {
+    content: ""; width: 6px; height: 6px; border-radius: 50%; background: #d8ffd8;
+    box-shadow: 0 0 0 0 rgba(216,255,216,.7); animation: pulse 1.6s infinite;
+  }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 6px rgba(216,255,216,0); } 100% { box-shadow: 0 0 0 0 rgba(216,255,216,0); } }
+  .top-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .top-hint { font-size: 12px; color: #9a8f83; }
+  .app {
+    max-width: 1280px; margin: 0 auto; padding: 6px 24px 40px;
+    display: grid; grid-template-columns: minmax(340px, 500px) minmax(0, 1fr); gap: 28px;
+    align-items: start;
+  }
+  .left { position: sticky; top: 14px; }
+  .score-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+  .scorebox {
+    background: var(--board); color: var(--ink-light); border-radius: 9px;
+    padding: 7px 10px; min-width: 0;
+  }
+  .scorebox .label { display: block; font-size: 10px; opacity: .85; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+  .scorebox .value { display: block; font-size: 21px; font-weight: 900; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .board-wrap { display: flex; justify-content: center; }
+  .board {
+    --n: 4;
+    width: 100%; max-width: 500px; aspect-ratio: 1 / 1;
+    background: var(--board); border-radius: 12px; padding: 10px;
+    display: grid; gap: 8px;
+    grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+    grid-template-rows: repeat(var(--n), minmax(0, 1fr));
+    touch-action: none; user-select: none;
+  }
+  .cell {
+    background: var(--empty); border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 900; color: var(--ink); line-height: 1; overflow: hidden;
+    font-size: clamp(9px, calc(420px / var(--n) / 2.2), 42px);
+    transition: background-color .12s ease, color .12s ease, box-shadow .12s ease;
+  }
+  .cell.v0 { color: transparent; }
+  .cell.v2 { background: #eee4da; color: #776e65; }
+  .cell.v4 { background: #ede0c8; color: #776e65; }
+  .cell.v8 { background: #f2b179; color: #f9f6f2; }
+  .cell.v16 { background: #f59563; color: #f9f6f2; }
+  .cell.v32 { background: #f67c5f; color: #f9f6f2; }
+  .cell.v64 { background: #f65e3b; color: #f9f6f2; }
+  .cell.v128 { background: #edcf72; color: #f9f6f2; }
+  .cell.v256 { background: #edcc61; color: #f9f6f2; }
+  .cell.v512 { background: #edc850; color: #f9f6f2; }
+  .cell.v1024 { background: #edc53f; color: #f9f6f2; }
+  .cell.v2048 { background: #edc22e; color: #f9f6f2; }
+  .cell.vbig { background: #3c3a32; color: #f9f6f2; }
+  .cell.changed { outline: 2px solid rgba(47,125,79,.75); outline-offset: -2px; animation: pop .22s ease; }
+  .cell.spawned { box-shadow: inset 0 0 0 3px rgba(47,125,79,.55); }
+  @keyframes pop { 0% { transform: scale(.94); } 60% { transform: scale(1.04); } 100% { transform: scale(1); } }
+  .now {
+    min-height: 26px; margin: 12px 2px 8px; font-size: 15px; font-weight: 700;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .now .chip { background: #efe9e0; border-radius: 6px; padding: 2px 7px; font-size: 12px; color: #6f6255; }
+  .now .plus { color: var(--green); }
+  .controls { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; margin: 6px 0 10px; }
+  .btn {
+    font: inherit; border: 0; border-radius: 8px; padding: 8px 11px;
+    background: var(--accent); color: var(--ink-light); font-weight: 800; font-size: 13px;
+    cursor: pointer; transition: filter .12s ease, transform .06s ease;
+  }
+  .btn:hover { filter: brightness(1.06); }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.primary { background: #5f5348; }
+  .btn.secondary { background: var(--accent-2); color: #4d433a; }
+  .speed { font-size: 12px; color: #8a7f74; display: inline-flex; align-items: center; gap: 5px; }
+  .speed select { font: inherit; font-size: 12px; border: 1px solid #d7cbbc; background: #fff; border-radius: 6px; padding: 4px 5px; }
+  .cand { background: #efe9e0; border-radius: 10px; padding: 9px 11px; margin: 8px 0; }
+  .cand summary { cursor: pointer; font-size: 13px; font-weight: 700; color: #6f6255; }
+  .cand-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 9px; }
+  .mini { background: #fffdfa; border: 1px solid var(--line); border-radius: 8px; padding: 7px; }
+  .mini.chosen { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(143,122,102,.25); }
+  .mini-label { display: flex; justify-content: space-between; gap: 4px; font-size: 11px; color: #7c7065; margin-bottom: 5px; }
+  .mini-label b { color: #5f5348; font-size: 12px; }
+  .mini-board { display: grid; gap: 2px; grid-template-columns: repeat(4, 1fr); }
+  .mini-board .cell { border-radius: 3px; font-size: 9px; min-height: 0; aspect-ratio: 1 / 1; }
+  .thinking {
+    background: #fff8e8; border: 1px solid #f0d9a8; border-radius: 10px;
+    padding: 10px 12px; margin-top: 10px;
+  }
+  .thinking-head { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 800; color: #7a5a16; }
+  .thinking-head .dot { width: 8px; height: 8px; border-radius: 50%; background: #d39a2e; animation: pulse 1.2s infinite; }
+  .thinking pre {
+    margin: 8px 0 0; max-height: 300px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+    font-family: var(--font); font-size: 13px; line-height: 1.6; color: #5d4a28;
+    background: #fffdf7; border-radius: 7px; padding: 9px;
+  }
+  .final {
+    margin-top: 10px; padding: 12px; border-radius: 10px;
+    background: #eaf4ec; border: 1px solid #c9e0cf; color: #2f5e3d; font-size: 13px; line-height: 1.6;
+  }
+  .final b { font-size: 15px; }
+  .right { min-width: 0; }
+  .timeline-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  .timeline-head h2 { margin: 0; font-size: 18px; color: #5f5348; }
+  .timeline-head span { font-size: 12px; color: #9a8f83; }
+  .timeline {
+    max-height: calc(100vh - 150px); overflow: auto; padding-right: 6px;
+    display: flex; flex-direction: column; gap: 9px; position: relative;
+  }
+  .step {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 11px 13px; cursor: pointer; transition: border-color .12s ease, box-shadow .12s ease;
+  }
+  .step:hover { border-color: #d3c4b4; }
+  .step.active { border-color: var(--accent); box-shadow: 0 4px 18px rgba(95,83,72,.10); }
+  .step-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 12px; color: #8a7f74; }
+  .step-head .idx { font-weight: 900; color: var(--accent); font-size: 13px; }
+  .step-head .move { font-weight: 900; color: #4d433a; font-size: 15px; }
+  .step-head .gain { font-weight: 800; color: var(--green); }
+  .step-head .gain.zero { color: #a09486; }
+  .step-head .score { margin-left: auto; color: #8a7f74; font-weight: 700; }
+  .tag { font-size: 10px; font-weight: 800; border-radius: 999px; padding: 1px 6px; background: #efe9e0; color: #7a5a16; }
+  .tag.fallback { background: #fbe7e7; color: #9c2f2f; }
+  .tag.retry { background: #fff1d6; color: #8a5a00; }
+  .tag.win { background: #e0f2e5; color: #2f6b45; }
+  .snippet { margin-top: 5px; font-size: 12px; color: #9a8f83; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .step.open .snippet { display: none; }
+  .think { display: none; margin-top: 9px; }
+  .step.open .think { display: block; }
+  .think-label { font-size: 11px; font-weight: 800; color: #8a7f74; letter-spacing: .04em; margin-bottom: 4px; }
+  .step pre {
+    margin: 0; max-height: 430px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+    font-family: var(--font); font-size: 13px; line-height: 1.62; color: #4f463e;
+    background: #f8f3eb; border-radius: 7px; padding: 9px 10px;
+  }
+  .answer { display: none; margin-top: 8px; align-items: center; gap: 6px; font-size: 12px; color: #8a7f74; }
+  .step.open .answer { display: flex; }
+  .answer code { font-family: var(--mono); background: #e4f0e7; color: #245c38; border-radius: 5px; padding: 2px 6px; font-size: 12px; font-weight: 700; }
+  .step footer { display: none; margin-top: 7px; gap: 10px; flex-wrap: wrap; font-size: 11px; color: #9a8f83; }
+  .step.open footer { display: flex; }
+  .empty-hint { padding: 30px 20px; text-align: center; color: #9a8f83; font-size: 13px; line-height: 1.8; }
+  .footnote { margin-top: 14px; font-size: 11px; color: #a69a8d; line-height: 1.6; }
+  .footnote code { font-family: var(--mono); background: #efe9e0; padding: 1px 4px; border-radius: 4px; }
+  .toast {
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+    max-width: min(720px, 92vw); background: #3b332c; color: #fff; border-radius: 10px;
+    padding: 10px 14px; font-size: 13px; line-height: 1.6; z-index: 50;
+    box-shadow: 0 8px 30px rgba(0,0,0,.22); display: none;
+  }
+  .toast.show { display: block; }
+  .toast code { font-family: var(--mono); background: rgba(255,255,255,.14); padding: 1px 4px; border-radius: 4px; }
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; gap: 16px; padding: 4px 14px 30px; }
+    .left { position: static; }
+    .timeline { max-height: none; }
+    .title h1 { font-size: 28px; }
+    .board { max-width: 440px; }
+    .cand-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 520px) {
+    .score-row { grid-template-columns: repeat(2, 1fr); }
+    .scorebox .value { font-size: 18px; }
+    .cand-grid { grid-template-columns: 1fr 1fr; }
+    .board { padding: 7px; gap: 5px; }
+  }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="title">
+      <h1>2048 <span>本地大模型逐步对局</span></h1>
+      <div class="badges">
+        <span class="badge" id="badgeModel">Qwen3.5-4B</span>
+        <span class="badge" id="badgeSeed">seed —</span>
+        <span class="badge" id="badgeMode">回放</span>
+        <span class="badge" id="badgeAssist">纯棋盘</span>
+        <span class="badge status starting" id="badgeStatus">准备中</span>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="btn secondary" id="btnLatest" type="button">回到最新</button>
+      <span class="top-hint" id="topHint">引擎先模拟合法落子，模型只做选择；思考原文保留</span>
+    </div>
+  </header>
+
+  <main class="app">
+    <section class="left">
+      <div class="score-row">
+        <div class="scorebox"><span class="label">分数</span><span class="value" id="score">0</span></div>
+        <div class="scorebox"><span class="label">最大块</span><span class="value" id="maxTile">0</span></div>
+        <div class="scorebox"><span class="label">步数</span><span class="value" id="stepCount">0</span></div>
+        <div class="scorebox"><span class="label">平均思考</span><span class="value" id="avgLatency">—</span></div>
+      </div>
+
+      <div class="board-wrap"><div class="board" id="board" role="grid" aria-label="2048 棋盘"></div></div>
+      <div class="now" id="nowLine">等待第一步…</div>
+
+      <div class="controls">
+        <button class="btn" id="btnPrev" type="button">← 上一步</button>
+        <button class="btn primary" id="btnPlay" type="button">播放</button>
+        <button class="btn" id="btnNext" type="button">下一步 →</button>
+        <label class="speed">速度
+          <select id="speed">
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="2">2×</option>
+            <option value="4">4×</option>
+          </select>
+        </label>
+        <button class="btn secondary" id="btnExpand" type="button">展开全部思考</button>
+      </div>
+
+      <details class="cand" id="candBox">
+        <summary id="candSummary">模型看到的候选盘面（引擎模拟）</summary>
+        <div class="cand-grid" id="candGrid"></div>
+      </details>
+
+      <div class="thinking" id="thinking" hidden>
+        <div class="thinking-head"><span class="dot"></span>模型正在思考 <b id="thinkStep">第 1 步</b><span id="thinkMeta"></span></div>
+        <pre id="thinkText"></pre>
+      </div>
+
+      <div class="final" id="finalBox" hidden></div>
+
+      <p class="footnote">
+        数据源：<code id="runPath">runs/…</code> · 思考文本为模型原始输出，未删改；
+        达到本次运行的 <code>max_tokens</code> 后会被截断（具体值见 <code>meta.json</code>）。
+        候选盘面由 <code>Game2048.move</code> 在页面内计算；纯棋盘模式下模型未看到候选。
+      </p>
+    </section>
+
+    <section class="right">
+      <div class="timeline-head">
+        <h2>逐步记录</h2>
+        <span>点击任意一步查看当时的盘面、候选与思考</span>
+      </div>
+      <div class="timeline" id="timeline">
+        <div class="empty-hint" id="emptyHint">正在读取对局…</div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+  /*__RUN_DATA__*/
+  </script>
+  <script>
+  (function () {
+    "use strict";
+
+    const params = new URLSearchParams(location.search);
+    const RUN_DIR = (params.get("run") || "runs/live-4b-s1").replace(/\/+$/, "");
+    const LIVE = params.get("live") === "1";
+    const EMBEDDED = window.__RUN_DATA__ || null;
+
+    let meta = EMBEDDED ? EMBEDDED.meta : null;
+    let steps = EMBEDDED ? (EMBEDDED.steps || []) : [];
+    let status = null;
+    let current = -1;
+    let follow = LIVE;
+    let playing = false;
+    let expandAll = false;
+    let timer = null;
+    let lastStepsLen = 0;
+    let firstLoad = true;
+
+    const $ = (id) => document.getElementById(id);
+    const boardEl = $("board");
+    const timelineEl = $("timeline");
+    const emptyHint = $("emptyHint");
+    const toast = $("toast");
+
+    const DIRS = ["up", "down", "left", "right"];
+    const ARROW = { up: "↑", down: "↓", left: "←", right: "→" };
+    const DIR_ZH = { up: "上", down: "下", left: "左", right: "右" };
+
+    function classFor(v) {
+      if (!v) return "v0";
+      return v > 2048 ? "vbig" : "v" + v;
+    }
+
+    function el(tag, cls, text) {
+      const e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text !== undefined) e.textContent = text;
+      return e;
+    }
+
+    function diffCells(before, after) {
+      const out = new Set();
+      if (!before || !after) return out;
+      for (let r = 0; r < after.length; r++) {
+        for (let c = 0; c < after[r].length; c++) {
+          if (!before[r] || before[r][c] !== after[r][c]) out.add(r + "," + c);
+        }
+      }
+      return out;
+    }
+
+    function renderBoard(container, grid, opts) {
+      const o = opts || {};
+      const n = grid.length;
+      container.style.setProperty("--n", String(n));
+      container.innerHTML = "";
+      const frag = document.createDocumentFragment();
+      for (let r = 0; r < n; r++) {
+        for (let c = 0; c < n; c++) {
+          const v = grid[r][c];
+          const cell = el("div", "cell " + classFor(v), v ? String(v) : "");
+          cell.setAttribute("role", "gridcell");
+          if (o.changed && o.changed.has(r + "," + c)) cell.classList.add("changed");
+          if (o.spawned && o.spawned.has(r + "," + c)) cell.classList.add("spawned");
+          frag.appendChild(cell);
+        }
+      }
+      container.appendChild(frag);
+    }
+
+    function parseJsonl(text) {
+      const out = [];
+      for (const line of text.split("\n")) {
+        if (!line.trim()) continue;
+        try { out.push(JSON.parse(line)); } catch (e) { /* partial last line while live */ }
+      }
+      return out;
+    }
+
+    async function fetchJson(url) {
+      const sep = url.indexOf("?") >= 0 ? "&" : "?";
+      const resp = await fetch(url + sep + "t=" + Date.now(), { cache: "no-store" });
+      if (!resp.ok) throw new Error(url + " → HTTP " + resp.status);
+      return await resp.json();
+    }
+
+    async function fetchText(url) {
+      const sep = url.indexOf("?") >= 0 ? "&" : "?";
+      const resp = await fetch(url + sep + "t=" + Date.now(), { cache: "no-store" });
+      if (!resp.ok) throw new Error(url + " → HTTP " + resp.status);
+      return await resp.text();
+    }
+
+    function showToast(html) {
+      toast.innerHTML = html;
+      toast.classList.add("show");
+      window.clearTimeout(showToast._t);
+      showToast._t = window.setTimeout(() => toast.classList.remove("show"), 12000);
+    }
+
+    function statusInfo() {
+      const s = (meta && meta.status) || "starting";
+      const map = {
+        starting: ["准备中", "starting"],
+        running: ["运行中", "running"],
+        lost: ["游戏结束", "bad"],
+        max_moves: ["达到步数上限", "bad"],
+        time_limit: ["达到时间上限", "bad"],
+        aborted: ["已中断", "bad"],
+        error: ["出错", "bad"],
+        max_moves_done: ["已完成", "bad"]
+      };
+      return map[s] || [s, "bad"];
+    }
+
+    function updateHeader() {
+      if (!meta) return;
+      $("badgeModel").textContent = (meta.model || "local") + " · 思考";
+      $("badgeSeed").textContent = "seed " + meta.seed;
+      $("badgeMode").textContent = LIVE ? "直播" : "回放";
+      $("badgeMode").classList.toggle("live", LIVE);
+      const assist = $("badgeAssist");
+      if (assist) assist.textContent = meta.assisted === false ? "纯棋盘" : "候选辅助";
+      const topHint = $("topHint");
+      if (topHint) {
+        topHint.textContent = meta.assisted === false
+          ? "纯棋盘：只给当前盘面、规则和合法方向；模型自己模拟，思考原文保留"
+          : "候选辅助：引擎先模拟合法落子，模型只做选择；思考原文保留";
+      }
+      const candSummary = $("candSummary");
+      if (candSummary) {
+        candSummary.textContent = meta.assisted === false
+          ? "本步候选盘面（引擎模拟；纯棋盘模式下模型未看到）"
+          : "模型看到的候选盘面（引擎模拟）";
+      }
+      const [txt, cls] = statusInfo();
+      const b = $("badgeStatus");
+      b.textContent = txt;
+      b.className = "badge status " + cls;
+      $("runPath").textContent = EMBEDDED ? "replay.html（内嵌）" : RUN_DIR;
+    }
+
+    function updateStats() {
+      const s = current >= 0 ? steps[current] : null;
+      const score = s ? s.score : (meta && meta.score) || 0;
+      const maxTile = s ? s.max_tile : (meta && meta.max_tile) || 0;
+      $("score").textContent = String(score);
+      $("maxTile").textContent = String(maxTile);
+      $("stepCount").textContent = String(steps.length);
+      const vals = steps.map((x) => x.latency_ms).filter((x) => typeof x === "number" && x > 0);
+      if (vals.length) {
+        const avg = vals.reduce((a, b) => a + b, 0) / vals.length / 1000;
+        $("avgLatency").textContent = avg.toFixed(1) + "s";
+      } else {
+        $("avgLatency").textContent = "—";
+      }
+    }
+
+    function updateNow() {
+      const s = current >= 0 ? steps[current] : null;
+      const line = $("nowLine");
+      line.innerHTML = "";
+      if (!s) {
+        line.appendChild(el("span", "", "初始盘面 · 等待第一步…"));
+        return;
+      }
+      line.appendChild(el("span", "chip", "第 " + s.i + " 步"));
+      line.appendChild(el("span", "", ARROW[s.move] + " " + DIR_ZH[s.move]));
+      line.appendChild(el("span", "plus", "+" + s.gained));
+      line.appendChild(el("span", "chip", "分数 " + s.score));
+      if (s.fallback) line.appendChild(el("span", "chip", "兜底"));
+      if (s.won) line.appendChild(el("span", "chip", "第一次到 2048"));
+    }
+
+    function renderCandidates() {
+      const box = $("candGrid");
+      box.innerHTML = "";
+      const s = current >= 0 ? steps[current] : null;
+      if (!s || !s.candidates) {
+        box.appendChild(el("div", "empty-hint", "这一步没有候选记录。"));
+        return;
+      }
+      for (const d of DIRS) {
+        const cand = s.candidates[d];
+        if (!cand) continue;
+        const mini = el("div", "mini" + (d === s.move ? " chosen" : ""));
+        const lab = el("div", "mini-label");
+        lab.appendChild(el("b", "", ARROW[d] + " " + DIR_ZH[d]));
+        lab.appendChild(el("span", "", "+" + cand.gain + " · 空 " + cand.empties + (cand.canMove ? "" : " · 会死")));
+        mini.appendChild(lab);
+        const b = el("div", "mini-board");
+        renderBoard(b, cand.grid, {});
+        mini.appendChild(b);
+        box.appendChild(mini);
+      }
+    }
+
+    function makeCard(step, idx) {
+      const card = el("article", "step");
+      card.dataset.i = String(idx);
+      card.addEventListener("click", () => goTo(idx));
+
+      const head = el("div", "step-head");
+      head.appendChild(el("span", "idx", "#" + step.i));
+      head.appendChild(el("span", "move", ARROW[step.move] + " " + DIR_ZH[step.move]));
+      head.appendChild(el("span", "gain" + (step.gained ? "" : " zero"), "+" + step.gained));
+      if (step.fallback) head.appendChild(el("span", "tag fallback", "兜底"));
+      if (step.retries) head.appendChild(el("span", "tag retry", "重问 " + step.retries));
+      if (step.won) head.appendChild(el("span", "tag win", "2048"));
+      head.appendChild(el("span", "score", "分数 " + step.score));
+      card.appendChild(head);
+
+      if (step.reasoning) {
+        const snip = (step.reasoning || "").replace(/\s+/g, " ").trim();
+        card.appendChild(el("div", "snippet", snip.slice(0, 150) + (snip.length > 150 ? "…" : "")));
+      }
+
+      const think = el("div", "think");
+      think.appendChild(el("div", "think-label", "模型思考"));
+      const pre = el("pre", "", step.reasoning || "（这一步没有思考文本）");
+      think.appendChild(pre);
+      card.appendChild(think);
+
+      const ans = el("div", "answer");
+      ans.appendChild(el("span", "", "最终落子"));
+      ans.appendChild(el("code", "", "MOVE: " + step.move));
+      if (step.content) {
+        const c = (step.content || "").replace(/\s+/g, " ").trim();
+        if (c && c.toUpperCase().indexOf("MOVE:") < 0) ans.appendChild(el("span", "", "· " + c.slice(0, 80)));
+      }
+      card.appendChild(ans);
+
+      const foot = el("footer");
+      if (step.latency_ms) foot.appendChild(el("span", "", "耗时 " + (step.latency_ms / 1000).toFixed(1) + "s"));
+      if (step.reasoning_chars) foot.appendChild(el("span", "", "思考 " + step.reasoning_chars + " 字"));
+      if (step.prompt_tokens_est) foot.appendChild(el("span", "", "≈输入 " + step.prompt_tokens_est + " tok"));
+      if (step.completion_tokens_est) foot.appendChild(el("span", "", "≈输出 " + step.completion_tokens_est + " tok"));
+      if (step.legal && step.legal.length) foot.appendChild(el("span", "", "合法步 " + step.legal.join("/")));
+      card.appendChild(foot);
+      return card;
+    }
+
+    function appendCards(from) {
+      for (let i = from; i < steps.length; i++) {
+        timelineEl.appendChild(makeCard(steps[i], i));
+      }
+      lastStepsLen = steps.length;
+      if (emptyHint && emptyHint.parentNode) emptyHint.remove();
+    }
+
+    function updateCardStates() {
+      const cards = timelineEl.querySelectorAll(".step");
+      for (const card of cards) {
+        const i = Number(card.dataset.i);
+        const isCurrent = i === current;
+        card.classList.toggle("active", isCurrent);
+        card.classList.toggle("open", isCurrent || expandAll);
+      }
+    }
+
+    function scrollCardIntoView(idx) {
+      const card = timelineEl.querySelector('.step[data-i="' + idx + '"]');
+      if (!card) return;
+      const top = card.offsetTop;
+      const bottom = top + card.offsetHeight;
+      if (top < timelineEl.scrollTop) timelineEl.scrollTop = Math.max(0, top - 8);
+      else if (bottom > timelineEl.scrollTop + timelineEl.clientHeight) {
+        timelineEl.scrollTop = bottom - timelineEl.clientHeight + 8;
+      }
+    }
+
+    function goTo(i, scroll) {
+      if (!steps.length) { current = -1; renderCurrent(); return; }
+      current = Math.max(0, Math.min(steps.length - 1, i));
+      updateCardStates();
+      renderCurrent();
+      if (scroll !== false) scrollCardIntoView(current);
+    }
+
+    function renderCurrent() {
+      const s = current >= 0 ? steps[current] : null;
+      if (s) {
+        const changed = diffCells(s.grid_before, s.grid_after);
+        const spawned = new Set((s.spawned || []).map((x) => x.r + "," + x.c));
+        renderBoard(boardEl, s.grid_after, { changed, spawned });
+      } else if (meta && meta.initial_grid) {
+        renderBoard(boardEl, meta.initial_grid, {});
+      }
+      updateStats();
+      updateNow();
+      renderCandidates();
+    }
+
+    function renderThinking() {
+      const box = $("thinking");
+      const active = !EMBEDDED && LIVE && status && (status.phase === "thinking" || status.phase === "retry");
+      if (!active) { box.hidden = true; return; }
+      box.hidden = false;
+      $("thinkStep").textContent = "第 " + (status.step || (steps.length + 1)) + " 步";
+      $("thinkMeta").textContent = status.phase === "retry" ? "格式不对，正在重问…" : "（流式输出）";
+      const txt = status.reasoning || status.content || "…";
+      const pre = $("thinkText");
+      const nearBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 80;
+      pre.textContent = txt;
+      if (nearBottom) pre.scrollTop = pre.scrollHeight;
+    }
+
+    function renderFinal() {
+      const box = $("finalBox");
+      if (!meta || !meta.final || meta.status === "running" || meta.status === "starting") {
+        box.hidden = true;
+        return;
+      }
+      const f = meta.final;
+      box.hidden = false;
+      box.innerHTML = "";
+      const strong = el("b", "", "本局结束：" + f.score + " 分");
+      box.appendChild(strong);
+      box.appendChild(document.createTextNode(
+        "，最大块 " + f.max_tile + "，共 " + f.moves + " 步，" +
+        (f.reached_2048 ? "达成 2048" : "未达到 2048") +
+        "，用时 " + Math.round((f.seconds || 0) / 60) + " 分钟。"
+      ));
+      const statusText = statusInfo()[0];
+      box.appendChild(document.createTextNode(" 状态：" + statusText + "。"));
+    }
+
+    function updatePlayButton() {
+      const b = $("btnPlay");
+      if (LIVE) {
+        b.textContent = follow ? "暂停跟随" : "继续跟随";
+        b.disabled = false;
+      } else {
+        b.textContent = playing ? "暂停" : "播放";
+      }
+    }
+
+    function togglePlay() {
+      if (LIVE) {
+        follow = !follow;
+        if (follow && steps.length) goTo(steps.length - 1);
+        updatePlayButton();
+        return;
+      }
+      if (playing) {
+        playing = false;
+        window.clearInterval(timer);
+      } else {
+        if (current >= steps.length - 1) current = -1;
+        playing = true;
+        const speed = Number($("speed").value) || 1;
+        timer = window.setInterval(() => {
+          if (current >= steps.length - 1) {
+            playing = false;
+            window.clearInterval(timer);
+            updatePlayButton();
+            return;
+          }
+          goTo(current + 1);
+        }, 2000 / speed);
+      }
+      updatePlayButton();
+    }
+
+    function updateAll() {
+      updateHeader();
+      if (steps.length !== lastStepsLen) {
+        appendCards(lastStepsLen);
+      }
+      if (current < 0 && steps.length) {
+        if (LIVE && follow) goTo(steps.length - 1, false);
+        else goTo(0, false);
+      }
+      updateCardStates();
+      renderCurrent();
+      renderThinking();
+      renderFinal();
+      updatePlayButton();
+    }
+
+    async function poll() {
+      if (EMBEDDED) return;
+      try {
+        const m = await fetchJson(RUN_DIR + "/meta.json");
+        meta = m;
+        let s = null;
+        try { s = await fetchJson(RUN_DIR + "/status.json"); } catch (e) { /* optional */ }
+        status = s;
+        if (!steps.length || (m.moves_done || 0) > steps.length) {
+          const txt = await fetchText(RUN_DIR + "/run.jsonl");
+          const parsed = parseJsonl(txt);
+          if (parsed.length >= steps.length) steps = parsed;
+        }
+        if (LIVE && follow && steps.length) {
+          if (current !== steps.length - 1) goTo(steps.length - 1, true);
+        } else if (current < 0 && steps.length) {
+          goTo(0, false);
+        }
+        updateAll();
+      } catch (e) {
+        showToast(
+          "读不到对局数据。<br>" +
+          "如果是直接双击打开，浏览器会禁止读取 <code>run.jsonl</code>；请用 " +
+          "<code>python serve.py</code> 后访问 <code>http://127.0.0.1:8788/viewer.html?run=" + RUN_DIR + "</code>，" +
+          "或生成 <code>replay.html</code>。<br><small>" + String(e) + "</small>"
+        );
+      }
+    }
+
+    function bind() {
+      $("btnPrev").addEventListener("click", () => { follow = false; updatePlayButton(); goTo(current - 1); });
+      $("btnNext").addEventListener("click", () => { follow = false; updatePlayButton(); goTo(current + 1); });
+      $("btnPlay").addEventListener("click", togglePlay);
+      $("btnLatest").addEventListener("click", () => { follow = true; updatePlayButton(); goTo(steps.length - 1); });
+      $("btnExpand").addEventListener("click", () => {
+        expandAll = !expandAll;
+        $("btnExpand").textContent = expandAll ? "收起思考" : "展开全部思考";
+        updateCardStates();
+      });
+      $("speed").addEventListener("change", () => {
+        if (!playing) return;
+        window.clearInterval(timer);
+        playing = false;
+        togglePlay();
+      });
+      document.addEventListener("keydown", (e) => {
+        const tag = (e.target && e.target.tagName || "").toLowerCase();
+        if (tag === "input" || tag === "textarea" || tag === "select") return;
+        if (e.key === "ArrowLeft") { e.preventDefault(); follow = false; goTo(current - 1); }
+        else if (e.key === "ArrowRight") { e.preventDefault(); follow = false; goTo(current + 1); }
+        else if (e.key === " ") { e.preventDefault(); togglePlay(); }
+      });
+      if (!LIVE) {
+        $("badgeMode").classList.remove("live");
+        $("btnLatest").textContent = "跳到最新";
+      }
+    }
+
+    function init() {
+      bind();
+      if (EMBEDDED) {
+        if (steps.length) { current = 0; }
+        updateAll();
+        if (steps.length) goTo(0, false);
+        return;
+      }
+      if (location.protocol === "file:") {
+        showToast("直接双击打开时浏览器禁止读取 <code>run.jsonl</code>。<br>请运行 <code>python serve.py</code>，打开 " +
+          "<code>http://127.0.0.1:8788/viewer.html?run=" + RUN_DIR + "&live=1</code>；或生成 <code>replay.html</code>。");
+        return;
+      }
+      poll();
+      window.setInterval(poll, 1200);
+    }
+
+    init();
+  })();
+  </script>
+</body>
+</html>

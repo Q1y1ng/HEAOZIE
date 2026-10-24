@@ -2,6 +2,19 @@
 
 ## [未发布]
 
+### 新增（2048 Agent · 本地/云端大模型逐步对局，2026-10-24）
+
+- 新增独立副本 `2048-agent/`：复制 `2048/index.html`，只加 `?seed=`（mulberry32）固定随机流，**原版零改动**；
+- `play.py`：Playwright 驱动副本，逐步记录盘面 / 候选 / 思考原文 / `MOVE:` / token / 耗时到 `runs/<id>/run.jsonl`；
+- `llm.py`：OpenAI 兼容流式客户端，同时接本地 llama.cpp（8096）与 OpenCode Go 免费档 `beam-free`；
+- `viewer.html` + `index.html` + `serve.py`：逐步直播/回放（含模型思考、候选盘面、分数）；
+  `build_replay.py` 生成可双击打开的自包含 replay；
+- 结果（同 seed 1）：4B 纯棋盘 108 步 / 780 分 / 最大 64；4B 候选辅助 214 步 / 2148 分 / 最大 128（2.75×）；
+  beam-free 有效 81 步 / 840 分 / 最大 128（TUN 断流截断）；
+- 已知：`beam-free` 地区限制需新加坡 TUN；`longcat-2.0` 非免费；Cloudflare 1010 需浏览器 UA，
+  OpenCode Go 需 `x-opencode-session`；
+- 测试：副本 Node 逻辑 53 项 + 结构检查全过；viewer 108 步回放零 JS 错误。
+
 ### 变更（M5 · 界面重做为 Windows 11 Fluent）
 
 > 起因：v1 的观感是"深色 Web 仪表盘"，与 Win11 原生应用不是一回事。本轮把整个外观层重做，

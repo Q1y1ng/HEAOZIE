@@ -14,3 +14,6 @@ __pycache__/
 # 临时产物
 .scratch/
 _tmp/
+
+# 2048 agent 运行产物（日志、回放、截图；可由 play.py 重新生成）
+2048-agent/runs/
