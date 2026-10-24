@@ -2,6 +2,7 @@
 
 Usage:
   py -3 bench.py --seeds 8 --budget 300 --parallel 8 --size 4 -- --w-empty 200 --w-merges 900
+  py -3 bench.py --exe engine_bb.exe --seeds 8 --budget 100 --parallel 8
 """
 from __future__ import annotations
 
@@ -16,8 +17,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 EXE = HERE / "engine4.exe"
 
 
-def run_game(seed: int, size: int, budget: float, extra: list[str]) -> dict | None:
-    args = [str(EXE), "--size", str(size), "--games", "1", "--seed", str(seed),
+def run_game(exe: pathlib.Path, seed: int, size: int, budget: float, extra: list[str]) -> dict | None:
+    args = [str(exe), "--size", str(size), "--games", "1", "--seed", str(seed),
             "--budget", str(budget), *extra]
     out = subprocess.run(args, capture_output=True, text=True, timeout=7200)
     for line in out.stdout.splitlines():
@@ -34,6 +35,8 @@ def run_game(seed: int, size: int, budget: float, extra: list[str]) -> dict | No
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--exe", default="engine4.exe",
+                    help="engine binary in this directory (default engine4.exe)")
     ap.add_argument("--seeds", type=int, default=8)
     ap.add_argument("--budget", type=float, default=300)
     ap.add_argument("--parallel", type=int, default=8)
@@ -44,11 +47,17 @@ def main() -> int:
     extra = args.extra
     if extra and extra[0] == "--":
         extra = extra[1:]
+    exe = pathlib.Path(args.exe)
+    if not exe.is_absolute():
+        exe = HERE / exe
+    if not exe.exists():
+        print(f"missing engine: {exe}")
+        return 1
 
     games: list[dict] = []
     with cf.ThreadPoolExecutor(max_workers=args.parallel) as pool:
         futs = {
-            pool.submit(run_game, args.start_seed + i, args.size, args.budget, extra): args.start_seed + i
+            pool.submit(run_game, exe, args.start_seed + i, args.size, args.budget, extra): args.start_seed + i
             for i in range(args.seeds)
         }
         for fut in cf.as_completed(futs):
