@@ -70,7 +70,9 @@ struct Cfg {
     int maxDepth = 16;
     double probCut = 1e-4;   // branches below this cumulative probability: static eval
     int chanceCap = 0;       // 0 = expand every empty cell
-    double prob4 = 0.1;
+    double prob4 = 0.1;      // real spawn rate of a 4-tile
+    double searchProb4 = 0.1;  // 4-tile rate *inside the search* (0 = ignore 4-spawns)
+    int nocutEmpties = 0;    // when empties <= this, ignore probCut (deep endgame)
     // eval weights (nneonneo/2048-ai defaults)
     double wEmpty = 270.0;   // NOTE: counted once per line, i.e. twice per cell
     double wMono = 47.0;
@@ -258,6 +260,8 @@ struct TTEntry {
 static std::vector<TTEntry> g_tt;
 static uint64_t g_ttMask = 0;
 static long long g_nodes = 0;
+static long long g_tt_hit = 0;
+static long long g_tt_probe = 0;
 static unsigned g_cuts = 0;
 static Clock::time_point g_end;
 static bool g_timeout = false;
@@ -293,8 +297,8 @@ static double searchChance(board_t b, int depth, double prob) {
         for (int k = 0; k < g_cfg.chanceCap; k++) cells[k] = sampled[k];
         use = g_cfg.chanceCap;
     }
-    const double w2 = 1.0 - g_cfg.prob4;
-    const double w4 = g_cfg.prob4;
+    const double w2 = 1.0 - g_cfg.searchProb4;
+    const double w4 = g_cfg.searchProb4;
     const double p2 = prob * w2 / (double)use;
     const double p4 = prob * w4 / (double)use;
     double total = 0.0;
@@ -316,14 +320,25 @@ static double searchChance(board_t b, int depth, double prob) {
 static double searchMax(board_t b, int depth, double prob) {
     if (depth <= 0) return evaluate(b);
     if (prob < g_cfg.probCut) {
-        g_cuts++;
-        return evaluate(b);
+        if (!g_cfg.nocutEmpties) {
+            g_cuts++;
+            return evaluate(b);
+        }
+        int ne = 16 - __builtin_popcountll(spread_bits(b) & OCC_MASK);
+        if (ne > g_cfg.nocutEmpties) {
+            g_cuts++;
+            return evaluate(b);
+        }
     }
     if (check_time()) return evaluate(b);
     g_nodes++;
 
     TTEntry& e = g_tt[mix64(b) & g_ttMask];
-    if (e.key == b && e.depth >= depth) return (double)e.val;
+    g_tt_probe++;
+    if (e.key == b && e.depth >= depth) {
+        g_tt_hit++;
+        return (double)e.val;
+    }
 
     const unsigned c0 = g_cuts;
     // one transpose shared by the up/down moves instead of two per move
@@ -366,6 +381,8 @@ struct RootResult {
     int depth = 0;
 };
 
+static int greedy_move(board_t b);  // defined with the bench helpers
+
 static RootResult root_search(board_t b) {
     g_timeout = false;
     g_tick = 0;
@@ -394,15 +411,24 @@ static RootResult root_search(board_t b) {
             v[d] = val;
             if (val > bv) { bv = val; bd = d; }
         }
-        if (complete && bd >= 0) {
+        if (bd >= 0 && (complete || bv > best.val)) {
+            // A timed-out deeper iteration still carries clean values for the
+            // moves it finished (the move that tripped the clock is discarded
+            // below), so keep it when it beats the last completed depth.
             best.dir = bd;
             best.val = bv;
             best.depth = depth;
-            for (int d = 0; d < 4; d++) orderVal[d] = v[d];
-        } else {
-            break;
+            if (complete) {
+                for (int d = 0; d < 4; d++) orderVal[d] = v[d];
+            }
         }
+        if (!complete) break;
         if (depth >= g_cfg.maxDepth) break;
+    }
+    if (best.dir < 0) {
+        // budget too small to finish even one ply: fall back to one-ply greedy
+        best.dir = greedy_move(b);
+        best.depth = 0;
     }
     return best;
 }
@@ -692,7 +718,9 @@ int main(int argc, char** argv) {
         else if (a == "--max-depth") g_cfg.maxDepth = std::stoi(next());
         else if (a == "--prob-cut") g_cfg.probCut = std::stod(next());
         else if (a == "--chance-cap") g_cfg.chanceCap = std::stoi(next());
-        else if (a == "--prob4") g_cfg.prob4 = std::stod(next());
+        else if (a == "--prob4") { g_cfg.prob4 = std::stod(next()); g_cfg.searchProb4 = g_cfg.prob4; }
+        else if (a == "--search-prob4") g_cfg.searchProb4 = std::stod(next());
+        else if (a == "--nocut-empties") g_cfg.nocutEmpties = std::stoi(next());
         else if (a == "--seed") seed = std::stoull(next());
         else if (a == "--save") savePath = strdup(next().c_str());
         else if (a == "--tt-bits") ttBits = (size_t)std::stoi(next());
@@ -740,6 +768,8 @@ int main(int argc, char** argv) {
         double depthSum = 0;
         double sumMoveMs = 0;
         int movesSlow = 0;
+        g_tt_hit = 0;
+        g_tt_probe = 0;
         auto t0 = Clock::now();
         FILE* out = nullptr;
         if (savePath && g == 0) {
@@ -776,8 +806,7 @@ int main(int argc, char** argv) {
             movesSlow += (mms > g_cfg.budgetMs * 2.5);
             if (traceEvery > 0 && moves % traceEvery == 0)
                 fprintf(stderr, "[m=%d score=%d depth=%d move_ms=%.1f avg_ms=%.1f nodes=%lld]\n",
-                        moves, score, rr.depth, mms, sumMoveMs / moves, g_nodes);
-            if (out) {
+                        moves, score, rr.depth, mms, sumMoveMs / moves, g_nodes);            if (out) {
                 if (moves > 1) fprintf(out, ",");
                 fprintf(out,
                         "{\"i\":%d,\"move\":\"%s\",\"gained\":%d,\"score\":%d,\"depth\":%d,"
@@ -801,11 +830,12 @@ int main(int argc, char** argv) {
         worstScore = std::min(worstScore, score);
         printf("{\"game\":%d,\"seed\":%llu,\"size\":4,\"score\":%d,\"moves\":%d,\"max_tile\":%d,"
                "\"seconds\":%.1f,\"avg_depth\":%.2f,\"nodes\":%lld,\"nps\":%lld,"
-               "\"move_ms\":%.1f,\"slow\":%d}\n",
+               "\"move_ms\":%.1f,\"slow\":%d,\"tt_hit\":%.3f}\n",
                g + 1, seed + (unsigned long long)g, score, moves, mx ? (1 << mx) : 0, secs,
                moves ? depthSum / moves : 0.0, nodes,
                secs > 0 ? (long long)((double)nodes / secs) : 0,
-               moves ? sumMoveMs / moves : 0.0, movesSlow);
+               moves ? sumMoveMs / moves : 0.0, movesSlow,
+               g_tt_probe ? (double)g_tt_hit / (double)g_tt_probe : 0.0);
         fflush(stdout);
     }
     if (games > 1) {
