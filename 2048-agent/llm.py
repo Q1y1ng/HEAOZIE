@@ -23,11 +23,19 @@ def _now_ms() -> float:
 
 
 class LlamaClient:
-    def __init__(self, base_url: str, model: str, api_key: str = "local", timeout: float = 300.0):
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        api_key: str = "local",
+        timeout: float = 300.0,
+        reasoning_effort: str | None = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.api_key = api_key
         self.timeout = timeout
+        self.reasoning_effort = reasoning_effort
         self.session_id = uuid.uuid4().hex
 
     # A browser-like UA is required by the OpenCode Go gateway (Cloudflare 1010 otherwise).
@@ -65,14 +73,21 @@ class LlamaClient:
                 "先启动 8096（见 README 的启动命令），再跑 play.py。"
             ) from exc
 
-    def chat(self, messages: list[dict], max_tokens: int = 256, temperature: float = 0.3) -> dict:
+    def _payload(self, messages: list[dict], max_tokens: int, temperature: float, stream: bool, **extra) -> dict:
         payload = {
             "model": self.model,
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
-            "stream": False,
+            "stream": stream,
         }
+        if self.reasoning_effort:
+            payload["reasoning_effort"] = self.reasoning_effort
+        payload.update(extra)
+        return payload
+
+    def chat(self, messages: list[dict], max_tokens: int = 256, temperature: float = 0.3) -> dict:
+        payload = self._payload(messages, max_tokens, temperature, stream=False)
         t0 = _now_ms()
         try:
             with urllib.request.urlopen(self._request(payload, self.timeout), timeout=self.timeout) as r:
@@ -102,15 +117,9 @@ class LlamaClient:
         on_delta(reasoning_text, content_text) is called at most every ~0.35s,
         and once at the end. It is used to publish the live "thinking" status.
         """
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "top_p": 0.9,
-            "seed": seed,
-            "stream": True,
-        }
+        payload = self._payload(
+            messages, max_tokens, temperature, stream=True, top_p=0.9, seed=seed
+        )
         t0 = _now_ms()
         reasoning_parts: list[str] = []
         content_parts: list[str] = []

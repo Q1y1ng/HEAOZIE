@@ -23,6 +23,7 @@
   viewer.html              逐步 viewer（直播 + 回放；/*__RUN_DATA__*/ 占位）
   serve.py                 本地静态服务（127.0.0.1:8788，no-store）
   build_replay.py          run 目录 -> 自包含 replay.html
+  build_demo.py            run 目录 -> CS2 demo 式播放器 demo.html + report.html + REPORT.md
   play.py                  主控：Playwright 驱动 + LLM 循环 + JSONL 记录
   llm.py                   OpenAI 兼容客户端（流式/非流式，llama.cpp 与 OpenCode Go）
   prompts.py               纯棋盘 / 候选辅助 / 强制决策提示词
@@ -87,6 +88,24 @@ py -3 serve.py
 - 单局直播：`http://127.0.0.1:8788/viewer.html?run=runs/<run-id>&live=1`
 - 单局静态：`http://127.0.0.1:8788/viewer.html?run=runs/<run-id>`
 - 离线自包含：`py -3 build_replay.py runs/<run-id>` → `runs/<run-id>/replay.html`（可直接双击，不依赖服务）
+
+### 4. Demo 回放 + 完整报告（CS2 demo 式）
+
+```powershell
+py -3 build_demo.py runs/<run-id>
+```
+
+产出（都在 run 目录里）：
+
+| 文件 | 作用 |
+| --- | --- |
+| `demo.html` | **播放器**：空格播放/暂停、←→ 单步、↑↓ 倍速、拖时间轴跳步；右侧「思考」按播放进度逐字打出该步完整推理，另有「决策」（四个方向候选对比 + 贪心建议）和「事件」（逐步 killfeed）两个页签 |
+| `demo.json` | demo 文件本体（meta + 每步全量数据），播放器里可下载，可离线重放 |
+| `report.html` | 完整报告：结果卡片、配置、过程数据、得分曲线、每步耗时图、与其他策略对比、关键节点、阶段走势、思考样本、完整走子表 |
+| `REPORT.md` | 同一份报告的 Markdown 版 |
+
+播放器时间轴按每步真实耗时 + 思考字数排布（1× 约等于“读懂这段思考”的速度），8× 可快速扫完整局；
+时间轴上的彩色小格是每步落子方向，高度是得分。
 
 ## 结果（4×4，spawn=1，seed=1）
 

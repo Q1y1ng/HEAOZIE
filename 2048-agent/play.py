@@ -187,6 +187,10 @@ def main() -> int:
     ap.add_argument("--temperature", type=float, default=0.3)
     ap.add_argument("--max-tokens", type=int, default=700)
     ap.add_argument("--plain", action="store_true", help="do not show candidate boards (harder mode)")
+    ap.add_argument("--unlimited-thinking", action="store_true", help="remove the prompt's word cap on reasoning")
+    ap.add_argument("--think-brief", type=int, default=None, help="ask the model to keep reasoning under N characters")
+    ap.add_argument("--llm-timeout", type=float, default=300.0, help="per-request timeout seconds")
+    ap.add_argument("--reasoning-effort", default=None, help="gateway-level reasoning effort (e.g. high)")
     ap.add_argument("--headed", action="store_true")
     ap.add_argument("--run-id", default=None)
     ap.add_argument("--out", default=None)
@@ -229,6 +233,10 @@ def main() -> int:
         "prompt_version": "assisted-v1" if not args.plain else "plain-v1",
         "temperature": args.temperature,
         "max_tokens": args.max_tokens,
+        "thinking_unlimited": args.unlimited_thinking,
+        "think_brief": args.think_brief,
+        "reasoning_effort": args.reasoning_effort,
+        "llm_timeout": args.llm_timeout,
         "max_moves": args.max_moves,
         "max_minutes": args.max_minutes,
         "game_source": str(ROOT / "game" / "index.html"),
@@ -244,7 +252,13 @@ def main() -> int:
 
     client = None
     if args.policy == "llm":
-        client = LlamaClient(args.base_url, args.model, api_key)
+        client = LlamaClient(
+            args.base_url,
+            args.model,
+            api_key,
+            timeout=args.llm_timeout,
+            reasoning_effort=args.reasoning_effort,
+        )
         if args.skip_health:
             print("LLM health: skipped (--skip-health)")
         else:
@@ -297,7 +311,14 @@ def main() -> int:
                 final_state = st
                 break
 
-            prompt = prompts.build_prompt(st, cand, history, assisted=not args.plain)
+            prompt = prompts.build_prompt(
+                st,
+                cand,
+                history,
+                assisted=not args.plain,
+                think_limit=not args.unlimited_thinking,
+                brief_chars=args.think_brief,
+            )
             reasoning = ""
             content = ""
             llm_meta: dict = {}

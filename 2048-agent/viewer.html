@@ -400,9 +400,18 @@
       return map[s] || [s, "bad"];
     }
 
+    function modelLabel() {
+      const id = (meta && meta.run_id) || "";
+      if (id.indexOf("ds-flash") >= 0) return "DeepSeek V4.1 Flash";
+      if (id.indexOf("qwen38-9b") >= 0) return "Qwen3.8-9B";
+      if (id.indexOf("free-beam") >= 0) return "beam-free";
+      if (id.indexOf("4b") >= 0) return "Qwen3.5-4B";
+      return (meta && meta.model) || "local";
+    }
+
     function updateHeader() {
       if (!meta) return;
-      $("badgeModel").textContent = (meta.model || "local") + " · 思考";
+      $("badgeModel").textContent = modelLabel() + " · 思考";
       $("badgeSeed").textContent = "seed " + meta.seed;
       $("badgeMode").textContent = LIVE ? "直播" : "回放";
       $("badgeMode").classList.toggle("live", LIVE);

@@ -30,7 +30,14 @@ def _history_line(history: list[dict]) -> str:
     return "Recent moves: " + ", ".join(parts) + "\n"
 
 
-def build_prompt(state: dict, candidates: dict, history: list[dict] | None = None, assisted: bool = True) -> str:
+def build_prompt(
+    state: dict,
+    candidates: dict,
+    history: list[dict] | None = None,
+    assisted: bool = True,
+    think_limit: bool = True,
+    brief_chars: int | None = None,
+) -> str:
     grid = state["grid"]
     score = state.get("score", 0)
     max_tile = state.get("maxTile", max(max(r) for r in grid))
@@ -72,11 +79,17 @@ def build_prompt(state: dict, candidates: dict, history: list[dict] | None = Non
             head.append(board_text(cand["grid"]))
             head.append("")
 
-    head += [
-        "Choose one legal move that you believe is best for the long-term score.",
-        "Think in at most 120 words. Then output exactly one final line, and nothing after it:",
-        "MOVE: <up|down|left|right>",
-    ]
+    head.append("Choose one legal move that you believe is best for the long-term score.")
+    if brief_chars:
+        head.append(
+            f"Keep the reasoning brief — at most {brief_chars} characters — name the key risk and plan,"
+            " then output exactly one final line, and nothing after it:"
+        )
+    elif think_limit:
+        head.append("Think in at most 120 words. Then output exactly one final line, and nothing after it:")
+    else:
+        head.append("Think through the position as carefully as you need. Then output exactly one final line, and nothing after it:")
+    head.append("MOVE: <up|down|left|right>")
     return "\n".join(head)
 
 
