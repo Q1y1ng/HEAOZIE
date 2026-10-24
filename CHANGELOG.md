@@ -34,6 +34,8 @@
   4×4 三局全部达到 2048（32.6k / 33.0k / 36.4k），比 Python 版 13.6k 高 2.5×；
 - 新增 `nn2048/cpu_cap.ps1`：用 Job Object 把进程树限在指定 CPU 百分比（默认 40%），
   引擎单线程约占 1 核（本机 ≈5%）；本机 Windows 拒绝 HARD_CAP，退化为 rate-control 平均值上限；
+- 新增 `nn2048/RESULTS.md` + `sweep.py`：4×4 权重扫描（7 组 × 4 seeds）——`--w-empty 200 --w-merges 900`
+  均分 31.4k、最高 **51,420（4096）**；同批 base 20.0k。结论：只调参天花板 60k–80k，突破需学习型评估；
 - 已知坑：网关 `base_url` 不能带 `/v1`（客户端会再拼一层，404）；提示词压不住 `reasoning_content` 长度。
 
 ### 变更（M5 · 界面重做为 Windows 11 Fluent）
