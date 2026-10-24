@@ -27,6 +27,8 @@
   play.py                  主控：Playwright 驱动 + LLM 循环 + JSONL 记录
   llm.py                   OpenAI 兼容客户端（流式/非流式，llama.cpp 与 OpenCode Go）
   prompts.py               纯棋盘 / 候选辅助 / 强制决策提示词
+  NN_PLAN.md               专用神经网络方案（可行性 / 路线 / 工期 / 验收）
+  nn2048/bench_env.py      位棋盘模拟器 + 可行性基准（39 万 moves/s）
   runs/<run-id>/           meta.json + run.jsonl + status.json + final.png + replay.html（gitignore）
   logs/                    8096 服务日志（gitignore）
 ```
