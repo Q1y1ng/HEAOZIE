@@ -87,6 +87,8 @@ legacy\                      Python 原件留档（已迁入，不再作为入�
 | 16384 率 | 0 | **39%** |
 | 8192 及以上 | 50% | **94%** |
 
+- 🌐 **在线看**（GitHub Pages）：<https://q1y1ng.github.io/HEAOZIE/>
+  直接开交互回放：<https://q1y1ng.github.io/HEAOZIE/2048-agent/demos/demo.html>
 - 浓缩回放（4:22，每帧 0.5 s）：[`2048-agent/demos/demo_condensed.mp4`](2048-agent/demos/demo_condensed.mp4)
 - 交互回放（单页自包含）：[`2048-agent/demos/demo.html`](2048-agent/demos/demo.html)
 - 数据、两个负结果与实验纪律：[`2048-agent/nn2048/RESULTS.md`](2048-agent/nn2048/RESULTS.md)、[`NIGHT_REPORT.md`](2048-agent/nn2048/NIGHT_REPORT.md)

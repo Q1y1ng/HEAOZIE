@@ -15,6 +15,7 @@
 | 引擎 | `nn2048/engine_bb.cpp`：棋盘压成 `uint64_t`、65536 项行移动表、转置复用、置换表、概率截断、迭代加深；单核 13–18 M 节点/s，实际深度 6.0 |
 | 5×5 顺带验证 | 旧数组引擎 30 ms/步（深度仅 3.2）就 **5/6 上 16384、1 局 32768（833,740 分）** |
 
+- 🌐 在线播放（GitHub Pages）：<https://q1y1ng.github.io/HEAOZIE/2048-agent/demos/demo.html>
 - 浓缩回放（4:22，每帧 0.5 s，25 步/帧）：[`demos/demo_condensed.mp4`](demos/demo_condensed.mp4)
 - 交互回放（单页自包含，可拖时间轴 / 定速 / 里程碑跳转）：[`demos/demo.html`](demos/demo.html)
 - 完整数据、两个负结果与实验纪律：[`nn2048/RESULTS.md`](nn2048/RESULTS.md)、[`nn2048/NIGHT_REPORT.md`](nn2048/NIGHT_REPORT.md)

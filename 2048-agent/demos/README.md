@@ -1,5 +1,8 @@
 # 2048 AI 演示（4×4 bitboard 期望最大引擎）
 
+> 🌐 在线播放：<https://q1y1ng.github.io/HEAOZIE/2048-agent/demos/demo.html>
+> 落地页：<https://q1y1ng.github.io/HEAOZIE/>
+
 | 文件 | 说明 |
 | --- | --- |
 | `demo_condensed.mp4` | **4:22 浓缩回放**：1280×720，2 fps（每帧 0.5 s），25 步/帧，带分数曲线与进度条 |
