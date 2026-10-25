@@ -63,6 +63,34 @@ legacy\                      Python 原件留档（已迁入，不再作为入�
 2048\                        纯前端小游戏，保持独立（不并入本应用）
 ```
 
+## 仓库里还有什么
+
+| 目录 | 内容 |
+| --- | --- |
+| `src/` `tools/` | 上面这套 HZ.exe 工具箱（C# / .NET Framework 4.8，单文件、零依赖、托盘常驻） |
+| `2048/` | 原版 2048 网页（纯前端，未改动，独立） |
+| `2048-agent/` | 让大模型玩 2048 的实验台 + **自研 bitboard 期望最大引擎**（见下） |
+| `legacy/` | 被 HZ.exe 取代的 Python 原件留档 |
+
+### 2048 AI（`2048-agent/`）
+
+![2048 demo](2048-agent/demos/cover.png)
+
+自研引擎 `2048-agent/nn2048/engine_bb.cpp`：棋盘压成一个 `uint64_t`（16 格 × 4 bit 存 log2）、
+65536 项行移动表、转置复用、置换表、**概率截断**（累计 spawn 概率 < 1e-4 的分支静态评估）、迭代加深。
+单核 **13–18 M 节点/s**，100 ms/步的实际深度 6.0。
+
+| 指标 | 旧数组引擎 | 现在 |
+| --- | ---: | ---: |
+| 18 局均分 | 37.6k | **231,928** |
+| 最高 | 60.8k（4096） | **387,408（16384）** |
+| 16384 率 | 0 | **39%** |
+| 8192 及以上 | 50% | **94%** |
+
+- 浓缩回放（4:22，每帧 0.5 s）：[`2048-agent/demos/demo_condensed.mp4`](2048-agent/demos/demo_condensed.mp4)
+- 交互回放（单页自包含）：[`2048-agent/demos/demo.html`](2048-agent/demos/demo.html)
+- 数据、两个负结果与实验纪律：[`2048-agent/nn2048/RESULTS.md`](2048-agent/nn2048/RESULTS.md)、[`NIGHT_REPORT.md`](2048-agent/nn2048/NIGHT_REPORT.md)
+
 ## 设计取舍（为什么这么做）
 
 - **WinForms + GDI+ 自绘，而不是 WPF**：本机两个同类应用（`launch-center` 的设计系统 v3、
