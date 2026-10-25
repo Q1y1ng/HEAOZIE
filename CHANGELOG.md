@@ -7,9 +7,10 @@
 - 新增 `2048-agent/demos/`：**把 4×4 引擎的演示放进仓库**——`demo.html`（单页自包含交互回放，
   13,014 步可拖时间轴/定速/里程碑跳转）、`demo_condensed.mp4`（4:22 浓缩视频，2.5 MB，
   每帧 0.5 s / 25 步）、`cover.png`（封面帧）、`README.md`（这一局的配置与复现命令）；
-- 新增根目录 `index.html` + `.nojekyll`：GitHub Pages 落地页（关键数字、引擎结构、对照表、
-  指向演示/视频/数据的入口），仓库描述同步更新并加了 topics；
-- 根 `README.md` 新增「仓库里还有什么」一节，把 2048 AI 的指标与演示入口提到主 README；
+- 新增根目录 `index.html` + `.nojekyll`：一个可直接打开的落地页（关键数字、引擎结构、对照表、
+  指向演示/视频/数据的入口），也能直接作为 GitHub Pages 的首页（Pages 尚未启用，见下）；
+- 仓库描述与 topics 已更新（`windows` / `csharp` / `2048` / `expectimax` / `game-ai` / `llm` …）；
+  根 `README.md` 新增「仓库里还有什么」一节，把 2048 AI 的指标与演示入口提到主 README；
   `2048-agent/README.md` 顶部加「演示」小节（指标 + 视频/回放/数据链接）；
 - 说明：`runs/` 仍不入库（逐局 JSON 上百 MB、可由命令重新生成），只把**最终演示产物**纳入版本管理。
 
